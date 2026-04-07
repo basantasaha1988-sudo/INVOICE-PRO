@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import { useDarkMode } from '../App';
 
 const Login = ({ onLogin }) => {
@@ -9,44 +10,39 @@ const Login = ({ onLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
   const { isDark } = useDarkMode();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    setTimeout(() => {
-      const trimUser = username.trim();
-      const trimPass = password;
+    const trimUser = username.trim();
 
-      if (!trimUser || !trimPass) {
-        setError('Please enter both username and password.');
-        setLoading(false);
-        return;
-      }
-
-      // ── Check default admin credentials ──
-      if (trimUser === 'admin' && trimPass === 'admin') {
-        onLogin(trimUser);
-        setLoading(false);
-        return;
-      }
-
-      // ── Check localStorage users (created via Footer > Manage Users) ──
-      try {
-        const users = JSON.parse(localStorage.getItem('invoicepro_users') || '[]');
-        const match = users.find(
-          u => u.username.toLowerCase() === trimUser.toLowerCase() && u.password === trimPass
-        );
-        if (match) {
-          onLogin(match.username);
-          setLoading(false);
-          return;
-        }
-      } catch { /* ignore parse errors */ }
-
-      setError('Invalid username or password. Please try again.');
+    // ✅ validation
+    if (!trimUser || !password) {
+      setError('Please enter both username and password.');
       setLoading(false);
-    }, 900);
+      return;
+    }
+
+    try {
+      // ✅ API call to backend
+      const res = await axios.post('http://localhost:5000/login', {
+        username: trimUser,
+        password: password
+      });
+
+      if (res.data.success) {
+        onLogin(res.data.user.username);
+      } else {
+        setError('Invalid username or password.');
+      }
+
+    } catch (err) {
+      console.error(err);
+      setError('Server error. Please try again.');
+    }
+
+    setLoading(false);
   };
 
   return (
@@ -58,16 +54,18 @@ const Login = ({ onLogin }) => {
         className={`glass-card p-5 shadow-xl ${isDark ? 'dark-glass' : ''}`}
         style={{ maxWidth: '440px', width: '100%' }}
       >
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="text-center mb-5">
           <div className="mb-3">
             <i className="bi bi-receipt display-3 text-primary"></i>
           </div>
           <h1 className="fw-bold fs-2 mb-1">InvoicePro</h1>
-          <p className="text-muted mb-0 small">Sign in to continue to your account</p>
+          <p className="text-muted mb-0 small">
+            Sign in to continue to your account
+          </p>
         </div>
 
-        {/* ── Form ── */}
+        {/* Form */}
         <form onSubmit={handleSubmit} noValidate>
 
           {/* Username */}
@@ -82,7 +80,10 @@ const Login = ({ onLogin }) => {
                 className="form-control form-control-lg border-start-0"
                 placeholder="Enter username"
                 value={username}
-                onChange={e => { setUsername(e.target.value); setError(''); }}
+                onChange={e => {
+                  setUsername(e.target.value);
+                  setError('');
+                }}
                 required
                 disabled={loading}
                 autoComplete="username"
@@ -103,7 +104,10 @@ const Login = ({ onLogin }) => {
                 className="form-control form-control-lg border-start-0 border-end-0"
                 placeholder="Enter password"
                 value={password}
-                onChange={e => { setPassword(e.target.value); setError(''); }}
+                onChange={e => {
+                  setPassword(e.target.value);
+                  setError('');
+                }}
                 required
                 disabled={loading}
                 autoComplete="current-password"
@@ -113,7 +117,6 @@ const Login = ({ onLogin }) => {
                 className="input-group-text bg-transparent border-start-0"
                 onClick={() => setShowPassword(p => !p)}
                 tabIndex={-1}
-                title={showPassword ? 'Hide password' : 'Show password'}
               >
                 <i className={`bi ${showPassword ? 'bi-eye-slash' : 'bi-eye'} text-muted`}></i>
               </button>
@@ -123,7 +126,7 @@ const Login = ({ onLogin }) => {
           {/* Error */}
           {error && (
             <div className="alert alert-danger d-flex align-items-center gap-2 py-2 mb-4 small">
-              <i className="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+              <i className="bi bi-exclamation-triangle-fill"></i>
               {error}
             </div>
           )}
@@ -136,7 +139,7 @@ const Login = ({ onLogin }) => {
           >
             {loading ? (
               <>
-                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                <span className="spinner-border spinner-border-sm me-2"></span>
                 Signing in...
               </>
             ) : (
@@ -148,10 +151,10 @@ const Login = ({ onLogin }) => {
           </button>
         </form>
 
-        {/* ── Footer info ── */}
+        {/* Footer */}
         <div className="text-center">
           <small className="text-muted">
-            Default login: <strong>admin</strong> / <strong>admin</strong>
+            Login using your registered account
           </small>
         </div>
 

@@ -65,8 +65,12 @@ function App() {
   const logout = () => {
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
+    localStorage.clear(); // Clear all for safety
     setIsAuthenticated(false);
     setUser(null);
+    setCurrentPage('home');
+    // Force reload to sync state
+    setTimeout(() => window.location.reload(), 100);
   };
 
   const authValue = { isAuthenticated, user, login, logout };

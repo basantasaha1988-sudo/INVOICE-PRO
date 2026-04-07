@@ -8,6 +8,7 @@ import { useCompanyMaster } from '../contexts/CompanyMasterContext';
 
 // ─── GST rates as per Indian GST slabs ───────────────────────────────────────
 const GST_SLABS = [0, 5, 12, 18, 28];
+// Fixed
 
 // ─── Bill number generator ────────────────────────────────────────────────────
 const generateBillNo = () => {

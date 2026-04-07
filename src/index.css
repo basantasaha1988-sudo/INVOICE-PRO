@@ -1,0 +1,415 @@
+/* COMPLETE THEME SYSTEM - CSS Variables for all themes */
+/* Theme Backgrounds */
+html, body, .app-theme, .min-vh-100, .main-content {
+  background: rgb(var(--bg-primary)) !important;
+  color: rgb(var(--text-primary));
+  min-height: 100vh;
+}
+
+:root {
+  /* Base vars */
+  --primary: 59 130 246; /* blue-500 */
+  --primary-dark: 30 64 175; /* blue-700 */
+  --bg-primary: 255 255 255;
+  --bg-secondary: 248 250 252; /* slate-50 */
+  --bg-card: 255 255 255;
+  --text-primary: 30 41 59; /* slate-900 */
+  --text-secondary: 71 85 105; /* slate-500 */
+  --text-muted: 148 163 184; /* slate-400 */
+  --border: 226 232 240; /* slate-200 */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --transition: all 0.2s ease;
+  --transition-fast: all 0.15s ease;
+}
+
+/* Light Theme */
+:root.light {
+  --bg-primary: 255 255 255;
+  --bg-secondary: 248 250 252;
+  --bg-card: 255 255 255;
+  --text-primary: 30 41 59;
+  --text-secondary: 71 85 105;
+  --text-muted: 148 163 184;
+  --border: 226 232 240;
+  --primary: 59 130 246;
+  --primary-dark: 30 64 175;
+}
+
+/* Dark Theme */
+:root.dark {
+  --bg-primary: 17 24 39; /* gray-900 */
+  --bg-secondary: 30 41 59; /* gray-800 */
+  --bg-card: 30 41 59;
+  --text-primary: 255 255 255;
+  --text-secondary: 205 217 229; /* slate-200 */
+  --text-muted: 148 163 184;
+  --border: 51 65 85; /* gray-600 */
+  --primary: 14 165 233; /* sky-500 */
+  --primary-dark: 2 105 199; /* sky-700 */
+}
+
+/* Red Theme */
+:root.red {
+  --primary: 239 68 68; /* red-500 */
+  --primary-dark: 153 27 27; /* red-800 */
+  --bg-primary: 254 226 226; /* red-50 */
+  --bg-secondary: 254 242 242; /* red-100 */
+  --bg-card: 255 255 255;
+  --text-primary: 53 28 28; /* red-900 */
+  --text-secondary: 136 74 81;
+  --text-muted: 200 142 142;
+  --border: 254 202 202; /* red-200 */
+}
+
+/* Blue Theme */
+:root.blue {
+  --primary: 59 130 246; /* blue-500 */
+  --primary-dark: 30 64 175; /* blue-700 */
+  --bg-primary: 239 246 255; /* blue-50 */
+  --bg-secondary: 219 234 254; /* blue-100 */
+  --bg-card: 255 255 255;
+  --text-primary: 15 23 42; /* slate-900 */
+  --text-secondary: 71 85 105;
+  --text-muted: 148 163 184;
+  --border: 191 219 254; /* blue-200 */
+}
+
+/* Green Theme */
+:root.green {
+  --primary: 34 197 94; /* green-500 */
+  --primary-dark: 22 163 74; /* green-600 */
+  --bg-primary: 240 253 244; /* green-50 */
+  --bg-secondary: 220 252 231; /* green-100 */
+  --bg-card: 255 255 255;
+  --text-primary: 17 24 39;
+  --text-secondary: 71 85 105;
+  --text-muted: 148 163 184;
+  --border: 187 247 208; /* green-200 */
+}
+
+/* Yellow Theme */
+:root.yellow {
+  --primary: 234 179 8; /* amber-500 */
+  --primary-dark: 146 114 1; /* amber-800 */
+  --bg-primary: 254 243 199; /* yellow-50 */
+  --bg-secondary: 254 252 232; /* yellow-100 */
+  --bg-card: 255 255 255;
+  --text-primary: 45 45 17; /* yellow-900 */
+  --text-secondary: 126 117 49;
+  --text-muted: 191 160 44;
+  --border: 253 230 138; /* yellow-200 */
+}
+
+/* Orange Theme */
+:root.orange {
+  --primary: 251 146 60; /* orange-500 */
+  --primary-dark: 154 52 18; /* orange-800 */
+  --bg-primary: 255 247 237; /* orange-50 */
+  --bg-secondary: 255 245 233; /* orange-100 */
+  --bg-card: 255 255 255;
+  --text-primary: 40 24 11;
+  --text-secondary: 113 73 34;
+  --text-muted: 180 123 65;
+  --border: 255 237 204; /* orange-200 */
+}
+
+/* Brown Theme */
+:root.brown {
+  --primary: 134 65 24; /* brown-600 */
+  --primary-dark: 76 29 12; /* brown-900 */
+  --bg-primary: 250 236 226; /* brown-50 */
+  --bg-secondary: 248 227 210;
+  --bg-card: 255 255 255;
+  --text-primary: 45 31 20;
+  --text-secondary: 107 80 57;
+  --text-muted: 168 124 82;
+  --border: 236 217 188;
+}
+
+/* Gold Theme */
+:root.gold {
+  --primary: 234 179 8; /* amber-500 */
+  --primary-dark: 180 83 9; /* amber-700 */
+  --bg-primary: 253 244 193;
+  --bg-secondary: 251 239 178;
+  --bg-card: 255 255 255;
+  --text-primary: 59 43 12;
+  --text-secondary: 146 100 30;
+  --text-muted: 202 158 62;
+  --border: 250 224 141;
+}
+
+/* Black Theme */
+:root.black {
+  --primary: 59 130 246; /* blue accent */
+  --primary-dark: 30 58 138;
+  --bg-primary: 10 10 10;
+  --bg-secondary: 20 20 20;
+  --bg-card: 25 25 25;
+  --text-primary: 255 255 255;
+  --text-secondary: 200 200 200;
+  --text-muted: 150 150 150;
+  --border: 40 40 40;
+}
+
+/* Neon Green Theme */
+:root.neon-green {
+  --primary: 16 185 129; /* emerald-500 */
+  --primary-dark: 6 125 81;
+  --bg-primary: 5 15 5;
+  --bg-secondary: 10 25 10;
+  --bg-card: 15 30 15;
+  --text-primary: 255 255 255;
+  --text-secondary: 200 255 200;
+  --text-muted: 150 230 150;
+  --border: 20 50 20;
+}
+
+/* Black Lemon Theme */
+:root.black-lemon {
+  --primary: 254 249 15; /* yellow-300 */
+  --primary-dark: 202 191 3;
+  --bg-primary: 8 8 8;
+  --bg-secondary: 18 18 18;
+  --bg-card: 28 28 28;
+  --text-primary: 255 255 255;
+  --text-secondary: 255 255 200;
+  --text-muted: 220 220 150;
+  --border: 40 40 30;
+}
+
+/* Dark Yellow Theme */
+:root["dark-yellow"] {
+  --primary: 234 179 8; /* amber-500 */
+  --primary-dark: 146 64 14;
+  --bg-primary: 35 35 20;
+  --bg-secondary: 50 50 30;
+  --bg-card: 60 60 40;
+  --text-primary: 255 255 240;
+  --text-secondary: 240 240 200;
+  --text-muted: 200 200 150;
+  --border: 80 80 60;
+}
+
+/* Bootstrap Theme Overrides - Theme Aware */
+:root .btn-primary {
+  --bs-btn-color: rgb(var(--text-primary));
+  --bs-btn-bg: rgb(var(--primary));
+  --bs-btn-border-color: rgb(var(--primary));
+  --bs-btn-hover-color: rgb(var(--text-primary));
+  --bs-btn-hover-bg: rgb(var(--primary-dark));
+  --bs-btn-hover-border-color: rgb(var(--primary-dark));
+  --bs-btn-active-bg: rgb(var(--primary-dark));
+  --bs-btn-active-border-color: rgb(var(--primary-dark));
+}
+:root .btn-success {
+  --bs-btn-color: rgb(var(--text-primary));
+  --bs-btn-bg: rgb(34 197 94 / 1);
+  --bs-btn-border-color: rgb(34 197 94 / 1);
+  --bs-btn-hover-bg: rgb(22 163 74 / 1);
+}
+:root .btn-warning {
+  --bs-btn-color: rgb(var(--text-primary));
+  --bs-btn-bg: rgb(234 179 8 / 1);
+  --bs-btn-border-color: rgb(234 179 8 / 1);
+}
+:root .btn-danger {
+  --bs-btn-color: rgb(var(--text-primary));
+  --bs-btn-bg: rgb(239 68 68 / 1);
+  --bs-btn-border-color: rgb(239 68 68 / 1);
+}
+:root .table-dark {
+  --bs-table-bg: rgb(var(--bg-card));
+  --bs-table-color: rgb(var(--text-primary));
+}
+:root .nav-tabs-custom .nav-link.active {
+  background: linear-gradient(135deg, rgb(var(--primary)), rgb(var(--primary-dark))) !important;
+  color: rgb(var(--text-primary)) !important;
+}
+:root .navbar-brand {
+  color: rgb(var(--text-primary)) !important;
+}
+:root .form-control, :root .form-select {
+  background: rgb(var(--bg-card)) !important;
+  border-color: rgb(var(--border)) !important;
+  color: rgb(var(--text-primary)) !important;
+}
+:root .form-control:focus, :root .form-select:focus {
+  border-color: rgb(var(--primary)) !important;
+  box-shadow: 0 0 0 0.25rem rgb(var(--primary) / 0.25) !important;
+}
+
+/* Dark mode input fix */
+:root.dark .form-control, :root.black .form-control, :root.dark .form-select {
+  background: rgb(var(--bg-secondary)) !important;
+  color: rgb(var(--text-primary)) !important;
+}
+
+/* Rest of dropdown styles... */
+
+ /* Add these styles for React theme dropdown */
+ .dropdown-menu-custom {
+  position: absolute !important;
+  top: 100%;
+  right: 0;
+  z-index: 1060;
+  min-width: 240px;
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 1rem;
+  background: rgb(var(--bg-card)) !important;
+  border: 1px solid rgb(var(--border));
+  box-shadow: var(--shadow-xl);
+  padding: 0;
+}
+
+.theme-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.theme-item {
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.theme-item:hover {
+  background: rgb(var(--primary) / 0.08) !important;
+  transform: translateX(4px);
+}
+
+.theme-item.active {
+  background: linear-gradient(135deg, rgb(var(--primary)), rgb(var(--primary-dark))) !important;
+  color: white !important;
+}
+
+@media (max-width: 768px) {
+  .dropdown-menu-custom {
+    min-width: 200px;
+    right: -20px;
+  }
+}
+
+/* Enhanced Responsive Styles - Preserve Themes */
+
+/* Stats Grid - Mobile First */
+.stats-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+@media (min-width: 480px) {
+  .stats-grid {
+    gap: 1.5rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Glass Cards - Mobile Optimized */
+@media (max-width: 640px) {
+  .glass-card {
+    padding: 1rem !important;
+    border-radius: 1rem !important;
+  }
+  
+  .stat-card {
+    padding: 1.5rem 1rem !important;
+    text-align: center;
+  }
+  
+  .stat-card .display-4 {
+    font-size: 2rem !important;
+  }
+}
+
+/* Touch-Friendly Buttons */
+@media (max-width: 768px) {
+  .btn {
+    padding: 0.75rem 1.25rem;
+    font-size: 0.95rem;
+    min-height: 48px;
+    touch-action: manipulation;
+  }
+  
+  .btn-group-sm .btn {
+    padding: 0.5rem 0.75rem;
+    min-height: 44px;
+  }
+  
+  /* Navbar fixes */
+  .navbar-brand {
+    font-size: 1.3rem !important;
+  }
+  
+  .input-group {
+    max-width: 100% !important;
+  }
+}
+
+/* Logo Upload Mobile */
+@media (max-width: 768px) {
+  .logo-upload {
+    padding: 2rem 1rem !important;
+  }
+  
+  .logo-preview {
+    max-width: 100px !important;
+    max-height: 70px !important;
+  }
+}
+
+/* Tables Mobile */
+@media (max-width: 480px) {
+  .table th,
+  .table td {
+    padding: 0.5rem 0.25rem !important;
+    font-size: 0.75rem !important;
+  }
+}
+
+/* Main Content Responsive */
+.main-content {
+  min-height: 100vh;
+  padding-bottom: 4rem; /* Footer space */
+}
+
+@media (max-width: 768px) {
+  .main-content {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Footer Responsive */
+@media (max-width: 640px) {
+  footer .row > div {
+    margin-bottom: 1.5rem;
+  }
+}
+
+/* Smooth Transitions */
+@media (prefers-reduced-motion: no-preference) {
+  * {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Rest of existing CSS unchanged - append only */
+

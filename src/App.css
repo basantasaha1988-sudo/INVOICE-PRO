@@ -1,0 +1,211 @@
+/* App Utilities - Responsive Table Search & Custom Overrides */
+
+/* Table Search */
+.table-search {
+  position: relative;
+  max-width: 300px;
+  margin-bottom: 1.5rem;
+}
+
+.table-search input {
+  padding-left: 2.5rem;
+  border-radius: 0.75rem;
+  border: 2px solid rgb(var(--border));
+  background: rgb(var(--bg-card));
+  transition: var(--transition-fast);
+}
+
+.table-search input:focus {
+  border-color: rgb(var(--primary));
+  box-shadow: 0 0 0 3px rgb(var(--primary) / 0.1);
+}
+
+.table-search i {
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgb(var(--text-muted));
+  z-index: 1;
+}
+
+/* Nav Tabs Custom */
+.nav-tabs-custom .nav-link {
+  border: none;
+  background: transparent;
+  color: rgb(var(--text-secondary));
+  padding: 1rem 1.5rem;
+  border-radius: 1rem 1rem 0 0;
+  margin-right: 0.5rem;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.nav-tabs-custom .nav-link.active {
+  background: linear-gradient(135deg, rgb(var(--primary)), rgb(var(--primary-dark)));
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.nav-tabs-custom .nav-link:hover:not(.active) {
+  background: rgb(var(--bg-secondary));
+  color: rgb(var(--text-primary));
+}
+
+/* Print Preview Enhancements */
+.print-preview {
+  max-width: 210mm;
+  margin: 0 auto;
+  background: white;
+  font-family: 'Inter', sans-serif;
+}
+
+.print-preview table {
+  font-size: 12px;
+}
+
+.print-preview th {
+  background: #f8f9fa !important;
+  font-weight: 700;
+}
+
+/* Loading States */
+.btn.loading {
+  position: relative;
+  pointer-events: none;
+}
+
+.btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin: auto;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spinner 1s linear infinite;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+}
+
+@keyframes spinner {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Logo Preview Container */
+.logo-preview-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.logo-preview {
+  max-width: 120px;
+  max-height: 80px;
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-md);
+  transition: var(--transition);
+}
+
+.logo-preview:hover {
+  transform: scale(1.05);
+}
+
+/* Enhanced Responsive Overrides - Multi-Breakpoint */
+
+/* Mobile First - XS/SM */
+@media (max-width: 480px) {
+  .nav-tabs-custom .nav-link {
+    padding: 0.5rem 0.75rem !important;
+    font-size: 0.8rem !important;
+    margin-right: 0.25rem !important;
+  }
+  
+  .table th, .table td {
+    padding: 0.5rem 0.25rem !important;
+    font-size: 0.75rem !important;
+    white-space: nowrap;
+  }
+  
+  .form-control, .form-select {
+    font-size: 0.875rem !important;
+    padding: 0.5rem 0.75rem !important;
+  }
+  
+  .h2, .h3 { font-size: 1.25rem !important; }
+  .h4, .h5 { font-size: 1.1rem !important; }
+}
+
+/* SM/MD */
+@media (max-width: 768px) {
+  .nav-tabs-custom .nav-link {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+  }
+  
+  .stat-card {
+    padding: 1.25rem !important;
+  }
+  
+  .table th,
+  .table td {
+    padding: 0.75rem 0.5rem;
+    font-size: 0.8rem;
+  }
+  
+  /* Forms */
+  .row.g-3 > div {
+    margin-bottom: 1rem;
+  }
+  
+  .btn-lg {
+    padding: 0.75rem 1.5rem !important;
+    font-size: 1rem !important;
+  }
+}
+
+/* Custom Mobile Search */
+@media (max-width: 768px) {
+  .table-search {
+    max-width: 100% !important;
+    margin-bottom: 1rem;
+  }
+  
+  /* Modal forms stack */
+  .modal-xl .row > .col-lg-4,
+  .modal-xl .row > .col-lg-3,
+  .modal-xl .row > .col-lg-2 {
+    margin-bottom: 1rem;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(var(--bg-secondary));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--text-muted));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--text-primary));
+}
+
+/* Selection highlight */
+::selection {
+  background: rgb(var(--primary) / 0.3);
+  color: rgb(var(--text-primary));
+}

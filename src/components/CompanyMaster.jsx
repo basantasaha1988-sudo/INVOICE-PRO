@@ -4,9 +4,9 @@ import { useCompanyMaster } from '../contexts/CompanyMasterContext';
 
 const CompanyMaster = () => {
   const { companies, setCompanies } = useCompanyMaster();
-  const [newCompany, setNewCompany] = useState({ name: '', address: '' });
+const [newCompany, setNewCompany] = useState({ name: '', address: '', logo: null });
   const [editingId, setEditingId] = useState(null);
-  const [editCompany, setEditCompany] = useState({ name: '', address: '' });
+  const [editCompany, setEditCompany] = useState({ name: '', address: '', logo: null });
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [nameError, setNameError] = useState('');
@@ -20,13 +20,26 @@ const CompanyMaster = () => {
     localStorage.setItem('companyMaster', JSON.stringify(companies));
   }, [companies]);
 
-  const validateForm = () => {
+const validateForm = () => {
     if (!newCompany.name.trim()) {
       setNameError('Company name is required');
       return false;
     }
     setNameError('');
     return true;
+  };
+
+  const handleLogoUpload = (file, setter) => {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Logo must be under 2MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setter(prev => ({ ...prev, logo: ev.target.result }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const addCompany = () => {
@@ -100,6 +113,37 @@ const CompanyMaster = () => {
                   Add New Company
                 </h5>
                 <div className="row g-3">
+                  {/* Logo Upload */}
+                  <div className="col-lg-12 mb-3">
+                    <label className="form-label fw-semibold">Company Logo</label>
+                    <div className="d-flex align-items-center gap-3">
+                      {newCompany.logo 
+                        ? <img src={newCompany.logo} alt="preview" style={{ maxHeight: 60, borderRadius: 8 }} className="shadow-sm" />
+                        : <div className="border rounded p-3 text-muted text-center" style={{ minWidth: 100, height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            No Logo
+                          </div>
+                      }
+                      <div>
+                        <label className="btn btn-outline-primary btn-sm">
+                          <i className="bi bi-upload me-1"></i>Upload
+                          <input 
+                            type="file" 
+                            className="d-none" 
+                            accept="image/*" 
+                            onChange={(e) => handleLogoUpload(e.target.files[0], setNewCompany)}
+                          />
+                        </label>
+                        {newCompany.logo && (
+                          <button 
+                            className="btn btn-outline-danger btn-sm ms-1" 
+                            onClick={() => setNewCompany(p => ({ ...p, logo: null }))}
+                          >
+                            <i className="bi bi-trash"></i>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                   <div className="col-lg-4">
                     <label className="form-label fw-semibold">Company Name <span className="text-danger">*</span></label>
                     <input 
@@ -154,15 +198,24 @@ const CompanyMaster = () => {
               <div className="table-responsive glass-card">
                 <table className="table table-hover">
                   <thead>
-                    <tr>
-                      <th className="fw-bold text-primary">Company Name</th>
-                      <th className="fw-bold text-primary">Address</th>
-                      <th className="fw-bold text-primary">Actions</th>
-                    </tr>
+                      <tr>
+                        <th className="fw-bold text-primary">Logo</th>
+                        <th className="fw-bold text-primary">Company Name</th>
+                        <th className="fw-bold text-primary">Address</th>
+                        <th className="fw-bold text-primary">Actions</th>
+                      </tr>
                   </thead>
                   <tbody>
                     {filteredCompanies.map(company => (
                       <tr key={company.id} className="fade-in-up">
+                        <td>
+                          {company.logo 
+                            ? <img src={company.logo} alt="logo" style={{ maxHeight: 40, borderRadius: 4 }} className="shadow-sm" />
+                            : <div className="text-muted small text-center p-2" style={{ minWidth: 50, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed #dee2e6' }}>
+                                No Logo
+                              </div>
+                          }
+                        </td>
                         <td className="fw-semibold">{company.name}</td>
                         <td>{company.address}</td>
                         <td>

@@ -151,7 +151,7 @@ const SaleInvoice = ({ onNavigateToInventory }) => {
   // ── Company select ──────────────────────────────────────────────────────────
   const handleCompanySelect = (name) => {
     const c = companyMaster.find(x => x.name === name);
-    if (c) setCompany(prev => ({ ...prev, name: c.name, address: c.address || '', gstin: c.gstin || '', logo: prev.logo }));
+    if (c) setCompany(prev => ({ ...prev, name: c.name, address: c.address || '', gstin: c.gstin || '', logo: c.logo || prev.logo }));
   };
 
   // ── Logo upload ─────────────────────────────────────────────────────────────
@@ -206,8 +206,9 @@ const SaleInvoice = ({ onNavigateToInventory }) => {
 
     deductStock(items);
     resetForm();
+    setActiveTab('list');
     alert('✅ Bill saved successfully!');
-  }, [company, customer, items, totals, billNo, billDate, dueDate, notes, gstMode, isInterState, editingBillId, bills, stockWarnings, deductStock, restoreStock]);
+  }, [company, customer, items, totals, billNo, billDate, dueDate, notes, gstMode, isInterState, editingBillId, bills, stockWarnings, deductStock, restoreStock, setActiveTab]);
 
   // ── Edit / Delete ────────────────────────────────────────────────────────────
   const editBill = (bill) => {

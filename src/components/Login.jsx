@@ -26,7 +26,7 @@ const Login = ({ onLogin }) => {
 
     try {
       // ✅ API call to backend
-      const res = await axios.post('http://localhost:5000/login', {
+      const res = await axios.post('/api/login', {
         username: trimUser,
         password: password
       });

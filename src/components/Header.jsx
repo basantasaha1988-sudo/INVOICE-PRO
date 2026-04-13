@@ -132,6 +132,15 @@ const Header = ({ onNavigate, currentPage }) => {
                 </button>
               </li>
 
+              <li className="nav-item">
+                <button
+                  className={`nav-link border-0 bg-transparent ${currentPage === "reciptpayment" ? "active" : ""}`}
+                  onClick={() => handleNavigate("reciptpayment")}
+                >
+                  Receipt Payment
+                </button>
+              </li>
+
             </ul>
 
             {/* Search */}

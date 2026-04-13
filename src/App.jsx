@@ -12,6 +12,7 @@ import Login from "./components/Login";
 import { ItemMasterProvider } from "./contexts/ItemMasterContext";
 import { CompanyMasterProvider } from "./contexts/CompanyMasterContext";
 import Dashboard from "./components/Dashboard";
+import ReceiptPayment from "./components/reciptpayment";
 // Already in your App.jsx — the {currentPage === 'dashboard'} block will render it
 
 const ThemeContext = createContext();
@@ -103,7 +104,9 @@ function App() {
                       <Inventory onNavigateToHome={() => setCurrentPage('home')} />
                     )}
 
-                    {currentPage === 'dashboard' && <Dashboard />}
+{currentPage === 'dashboard' && <Dashboard />}
+
+                    {currentPage === 'reciptpayment' && <ReceiptPayment />}
 
                     <ItemMaster />
 

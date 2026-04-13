@@ -31,6 +31,8 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('home');
+  const [selectedInvoice, setSelectedInvoice] = useState(null); // {total, customer, billNo, balance, paid: 0}
+  const [receipts, setReceipts] = useState([]);
 
   const themes = ['light', 'dark', 'red', 'blue', 'green', 'yellow', 'orange', 'brown', 'gold', 'black', 'neon-green', 'black-lemon', 'dark-yellow'];
 
@@ -44,7 +46,15 @@ function App() {
     const savedTheme = localStorage.getItem('currentTheme') || 'light';
     setCurrentTheme(savedTheme);
     document.documentElement.className = savedTheme;
+
+    // Load receipts
+    const savedReceipts = localStorage.getItem('receipts');
+    if (savedReceipts) setReceipts(JSON.parse(savedReceipts));
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('receipts', JSON.stringify(receipts));
+  }, [receipts]);
 
   const setTheme = (theme) => {
     if (!themes.includes(theme)) return;
@@ -96,8 +106,20 @@ function App() {
 
                     <Header currentPage={currentPage} onNavigate={setCurrentPage} />
 
-                    {currentPage === 'home' && (
-                      <SaleInvoice onNavigateToInventory={() => setCurrentPage('inventory')} />
+{currentPage === 'home' && (
+                      <SaleInvoice 
+                        onNavigateToInventory={() => setCurrentPage('inventory')} 
+                        selectInvoiceForPayment={(data) => {
+                          // Calculate current paid and balance
+                          const paid = receipts
+                            .filter(r => r.paymentDocNumber === data.billNo)
+                            .reduce((sum, r) => sum + r.receiptAmount, 0);
+                          const balance = data.total - paid;
+                          setSelectedInvoice({ ...data, paid, balance });
+                          setCurrentPage('reciptpayment');
+                        }}
+                        receipts={receipts}
+                      />
                     )}
 
 {currentPage === 'inventory' && (
@@ -106,7 +128,22 @@ function App() {
 
 {currentPage === 'dashboard' && <Dashboard />}
 
-                    {currentPage === 'reciptpayment' && <ReceiptPayment />}
+                    {currentPage === 'reciptpayment' && (
+                      <ReceiptPayment 
+                        invoice={selectedInvoice}
+                        onClose={() => {
+                          setSelectedInvoice(null);
+                          setCurrentPage('home');
+                        }}
+                        onReceiptSaved={(receipt) => {
+                          setReceipts(prev => [...prev, receipt]);
+                          console.log('Receipt saved:', receipt);
+                          alert(`Receipt saved! Balance updated for ${receipt.paymentDocNumber}`);
+                          setSelectedInvoice(null);
+                          setCurrentPage('home');
+                        }}
+                      />
+                    )}
 
                     <ItemMaster />
 

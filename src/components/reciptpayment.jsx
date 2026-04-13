@@ -1,18 +1,38 @@
-import React, { useState } from 'react';
-import './ReceiptPayment.css'; // Create this file for styling
+import React, { useState, useEffect } from 'react';
+import './ReceiptPayment.css';
+import { useDarkMode } from '../App';
 
-const ReceiptPayment = () => {
+const ReceiptPayment = ({
+  invoice = {},
+  onClose,
+  onReceiptSaved
+}) => {
+
   const [formData, setFormData] = useState({
     companyName: '',
     paymentDocNumber: '',
     amount: '',
     receiptAmount: '',
-    type: 'againstBill', // 'advance' or 'againstBill'
+    mode: 'Cash',
+    type: 'againstBill',
     remarks: '',
   });
 
-  const [receipts, setReceipts] = useState([]);
-  const [editingId, setEditingId] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+
+// Pre-fill data when invoice is passed
+  useEffect(() => {
+    if (invoice && Object.keys(invoice).length > 0) {
+      setFormData({
+        companyName: invoice.customerName || invoice.companyName || '',
+        paymentDocNumber: invoice.invoiceNumber || invoice.billNo || '',
+        amount: invoice.totalAmount || invoice.total || '',
+        receiptAmount: invoice.totalAmount || invoice.total || '',
+        type: 'againstBill',
+        remarks: `Payment received against Invoice #${invoice.invoiceNumber || invoice.billNo || ''}`,
+      });
+    }
+  }, [invoice]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -21,180 +41,153 @@ const ReceiptPayment = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    
+
     if (!formData.companyName || !formData.paymentDocNumber || !formData.receiptAmount) {
       alert("Please fill all required fields");
       return;
     }
 
-    const newReceipt = {
-      id: editingId || Date.now(),
-      ...formData,
+    const receipt = {
+      id: Date.now(),
       date: new Date().toLocaleDateString('en-IN'),
+      paymentDocNumber: formData.paymentDocNumber,
+      companyName: formData.companyName,
+      invoiceTotal: parseFloat(formData.amount) || 0,
+      receiptAmount: parseFloat(formData.receiptAmount) || 0,
+      balance: (parseFloat(formData.amount) || 0) - parseFloat(formData.receiptAmount || 0),
+      mode: formData.mode,
+      type: formData.type,
+      remarks: formData.remarks,
     };
 
-    if (editingId) {
-      setReceipts(receipts.map(item => item.id === editingId ? newReceipt : item));
-      setEditingId(null);
-    } else {
-      setReceipts([...receipts, newReceipt]);
-    }
+    // Callback to parent (save receipt globally)
+    if (onReceiptSaved) onReceiptSaved(receipt);
 
-    // Reset form
-    setFormData({
-      companyName: '',
-      paymentDocNumber: '',
-      amount: '',
-      receiptAmount: '',
-      type: 'againstBill',
-      remarks: '',
-    });
+    alert("Receipt Saved Successfully!");
+    onClose(); // Close modal
   };
 
-  const handleEdit = (receipt) => {
-    setFormData(receipt);
-    setEditingId(receipt.id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleDelete = (id) => {
-    if (window.confirm('Are you sure you want to delete this receipt?')) {
-      setReceipts(receipts.filter(item => item.id !== id));
-    }
-  };
-
-  const handlePrint = (receipt) => {
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <html>
-        <head><title>Receipt Payment - ${receipt.paymentDocNumber}</title></head>
-        <body style="font-family: Arial; padding: 40px;">
-          <h2>Receipt Payment Voucher</h2>
-          <p><strong>Date:</strong> ${receipt.date}</p>
-          <p><strong>Company:</strong> ${receipt.companyName}</p>
-          <p><strong>Doc Number:</strong> ${receipt.paymentDocNumber}</p>
-          <p><strong>Type:</strong> ${receipt.type === 'advance' ? 'Advance Payment' : 'Against Bill'}</p>
-          <p><strong>Amount:</strong> ₹${receipt.amount}</p>
-          <p><strong>Receipt Amount:</strong> ₹${receipt.receiptAmount}</p>
-          <p><strong>Remarks:</strong> ${receipt.remarks || 'N/A'}</p>
-          <hr />
-          <p style="margin-top: 50px;">Authorized Signature</p>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
-  };
+  const { isDark } = useDarkMode();
 
   return (
-    <div className="receipt-container">
-      <h2>{editingId ? 'Edit Receipt Payment' : 'New Receipt Payment'}</h2>
-
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="receipt-form">
-        <div className="form-grid">
-          <div className="form-group">
-            <label>Company Name <span className="required">*</span></label>
-            <input
-              type="text"
-              name="companyName"
-              value={formData.companyName}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Payment Doc Number <span className="required">*</span></label>
-            <input
-              type="text"
-              name="paymentDocNumber"
-              value={formData.paymentDocNumber}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Amount (₹)</label>
-            <input
-              type="number"
-              name="amount"
-              value={formData.amount}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Receipt Amount (₹) <span className="required">*</span></label>
-            <input
-              type="number"
-              name="receiptAmount"
-              value={formData.receiptAmount}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Type</label>
-            <select name="type" value={formData.type} onChange={handleChange}>
-              <option value="againstBill">Against Bill</option>
-              <option value="advance">Advance Payment</option>
-            </select>
-          </div>
-
-          <div className="form-group full-width">
-            <label>Remarks</label>
-            <textarea
-              name="remarks"
-              value={formData.remarks}
-              onChange={handleChange}
-              rows="3"
-            />
-          </div>
-        </div>
-
-        <button type="submit" className="submit-btn">
-          {editingId ? 'Update Receipt' : 'Save Receipt'}
+    <div className={`receipt-container ${isDark ? 'dark-mode' : ''}`}>
+      <div className="d-flex align-items-center mb-4 gap-3">
+        <button 
+          className="btn btn-outline-secondary rounded-circle p-2" 
+          onClick={onClose}
+          style={{ minWidth: '50px', height: '50px' }}
+        >
+          ← Back
         </button>
-      </form>
+        <h2 className="mb-0 fw-bold">
+          <i className="bi bi-receipt me-2 text-success"></i>
+          Receipt Payment
+        </h2>
+      </div>
 
-      {/* Receipts Table */}
-      <h3>Receipt Payments List</h3>
-      <div className="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Company Name</th>
-              <th>Doc Number</th>
-              <th>Type</th>
-              <th>Amount</th>
-              <th>Receipt Amt</th>
-              <th>Remarks</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {receipts.map((receipt) => (
-              <tr key={receipt.id}>
-                <td>{receipt.date}</td>
-                <td>{receipt.companyName}</td>
-                <td>{receipt.paymentDocNumber}</td>
-                <td>{receipt.type === 'advance' ? 'Advance' : 'Against Bill'}</td>
-                <td>₹{receipt.amount}</td>
-                <td>₹{receipt.receiptAmount}</td>
-                <td>{receipt.remarks}</td>
-                <td>
-                  <button onClick={() => handleEdit(receipt)} className="edit-btn">Edit</button>
-                  <button onClick={() => handlePrint(receipt)} className="print-btn">Print</button>
-                  <button onClick={() => handleDelete(receipt.id)} className="delete-btn">Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="receipt-form">
+        <form onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Company / Customer Name <span className="text-danger">*</span></label>
+              <input
+                type="text"
+                name="companyName"
+                value={formData.companyName}
+                onChange={handleChange}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Payment Doc / Invoice No <span className="text-danger">*</span></label>
+              <input
+                type="text"
+                name="paymentDocNumber"
+                value={formData.paymentDocNumber}
+                onChange={handleChange}
+                required
+              />
+            </div>
+
+            {invoice.total > 0 && (
+              <>
+                <div className="form-group">
+                  <label>Invoice Total (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    name="amount"
+                    value={formData.amount}
+                    onChange={handleChange}
+                    readOnly
+                    className="form-control-plaintext text-success fw-bold"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Current Balance (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={invoice.balance || formData.amount}
+                    readOnly
+                    className="form-control-plaintext text-warning fw-bold"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="form-group">
+              <label>Receipt Amount (₹) <span className="text-danger">*</span></label>
+              <input
+                type="number"
+                step="0.01"
+                name="receiptAmount"
+                value={formData.receiptAmount}
+                onChange={handleChange}
+                required
+                max={invoice.balance || formData.amount || 999999}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Payment Mode</label>
+              <select name="mode" value={formData.mode || 'Cash'} onChange={handleChange}>
+                <option value="Cash">Cash</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="UPI">UPI</option>
+                <option value="Card">Card</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Payment Type</label>
+              <select name="type" value={formData.type} onChange={handleChange}>
+                <option value="againstBill">Against Bill</option>
+                <option value="advance">Advance</option>
+                <option value="fullSettlement">Full Settlement</option>
+              </select>
+            </div>
+
+            <div className="form-group full-width">
+              <label>Remarks</label>
+              <textarea
+                rows="3"
+                name="remarks"
+                value={formData.remarks}
+                onChange={handleChange}
+                placeholder="Payment reference, cheque no, etc..."
+              />
+            </div>
+          </div>
+
+          <button type="submit" className="submit-btn">
+            <i className="bi bi-check-circle me-2"></i>
+            Save Receipt & Print
+          </button>
+        </form>
       </div>
     </div>
   );

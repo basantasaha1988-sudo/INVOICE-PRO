@@ -24,7 +24,7 @@ const splitGST = (taxAmt, isInterState) => {
   return { igst: 0, cgst: taxAmt / 2, sgst: taxAmt / 2 };
 };
 
-const SaleInvoice = ({ onNavigateToInventory }) => {
+const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts = [] }) => {
   const { currentTheme } = useTheme();
   const { items: itemMaster, setItems: setItemMaster } = useItemMaster();
   const { companies: companyMaster } = useCompanyMaster();
@@ -773,6 +773,21 @@ const SaleInvoice = ({ onNavigateToInventory }) => {
                       <button className="btn btn-success w-100 btn-lg" onClick={saveBill}>
                         <i className="bi bi-save me-2"></i>{editingBillId ? 'Update Bill' : 'Save Bill'}
                       </button>
+                      {totals.total > 0 && (
+                        <button className="btn btn-info w-100 btn-lg mt-2" onClick={() => {
+                          const paid = receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+                          const balance = totals.total - paid;
+                          selectInvoiceForPayment({
+                            total: totals.total,
+                            customer: customer.name,
+                            billNo: billNo,
+                            companyName: company.name || '',
+                            balance: Math.max(0, balance)
+                          });
+                        }}>
+                          <i className="bi bi-receipt me-2"></i>Receipt Payment (Balance: ₹{Math.max(0, totals.total - receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0)).toLocaleString()})
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -824,12 +839,21 @@ const SaleInvoice = ({ onNavigateToInventory }) => {
                           <td>{bill.customer?.name || '—'}</td>
                           <td className="text-end">₹{(bill.totals?.taxable || 0).toFixed(2)}</td>
                           <td className="text-end text-warning">₹{(bill.totals?.tax || 0).toFixed(2)}</td>
-                          <td className="text-end fw-bold text-success">₹{(bill.totals?.total || 0).toFixed(2)}</td>
+<td className="text-end fw-bold text-success">₹{(bill.totals?.total || 0).toFixed(2)}</td>
+                          <br /><small className="text-muted">Balance: ₹{Math.max(0, (bill.totals?.total || 0) - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + (r.receiptAmount || 0), 0)).toLocaleString()}</small>
                           <td><span className={`badge ${bill.gstMode === 'none' ? 'bg-secondary' : 'bg-success'}`}>{bill.gstMode}</span></td>
                           <td>
                             <div className="btn-group btn-group-sm">
                               <button className="btn btn-outline-primary" onClick={() => editBill(bill)} title="Edit"><i className="bi bi-pencil"></i></button>
                               <button className="btn btn-outline-success" onClick={() => { editBill(bill); setTimeout(() => setPreview(true), 100); }} title="Print"><i className="bi bi-printer"></i></button>
+                              <button className="btn btn-info" onClick={() => selectInvoiceForPayment({
+                                billNo: bill.billNo,
+                                customer: bill.customer.name,
+                                total: bill.totals.total,
+                                companyName: bill.company.name,
+                                invoiceDate: bill.billDate,
+                                balance: bill.totals.total - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount), 0)
+                              })} title="Payment"><i className="bi bi-receipt"></i></button>
                               <button className="btn btn-outline-danger" onClick={() => deleteBill(bill.id)} title="Delete"><i className="bi bi-trash"></i></button>
                             </div>
                           </td>

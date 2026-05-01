@@ -4,8 +4,10 @@ import { useDarkMode } from '../App';
 
 const ReceiptPayment = ({
   invoice = {},
+  receipts = [],
   onClose,
-  onReceiptSaved
+  onReceiptSaved,
+  onDeleteReceipt
 }) => {
 
   const [formData, setFormData] = useState({
@@ -18,16 +20,15 @@ const ReceiptPayment = ({
     remarks: '',
   });
 
-  const [isEditing, setIsEditing] = useState(false);
-
-// Pre-fill data when invoice is passed
+  // Pre-fill data when invoice is passed
   useEffect(() => {
     if (invoice && Object.keys(invoice).length > 0) {
       setFormData({
         companyName: invoice.customerName || invoice.companyName || '',
         paymentDocNumber: invoice.invoiceNumber || invoice.billNo || '',
         amount: invoice.totalAmount || invoice.total || '',
-        receiptAmount: invoice.totalAmount || invoice.total || '',
+        receiptAmount: invoice.balance || invoice.totalAmount || invoice.total || '',
+        mode: 'Cash',
         type: 'againstBill',
         remarks: `Payment received against Invoice #${invoice.invoiceNumber || invoice.billNo || ''}`,
       });
@@ -37,6 +38,18 @@ const ReceiptPayment = ({
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const resetForm = () => {
+    setFormData({
+      companyName: '',
+      paymentDocNumber: '',
+      amount: '',
+      receiptAmount: '',
+      mode: 'Cash',
+      type: 'againstBill',
+      remarks: '',
+    });
   };
 
   const handleSubmit = (e) => {
@@ -64,7 +77,11 @@ const ReceiptPayment = ({
     if (onReceiptSaved) onReceiptSaved(receipt);
 
     alert("Receipt Saved Successfully!");
-    onClose(); // Close modal
+  };
+
+  const handleDelete = (id) => {
+    if (!window.confirm('Delete this receipt?')) return;
+    if (onDeleteReceipt) onDeleteReceipt(id);
   };
 
   const { isDark } = useDarkMode();
@@ -110,7 +127,7 @@ const ReceiptPayment = ({
               />
             </div>
 
-            {invoice.total > 0 && (
+            {(invoice?.total > 0 || formData.amount) && (
               <>
                 <div className="form-group">
                   <label>Invoice Total (₹)</label>
@@ -120,7 +137,7 @@ const ReceiptPayment = ({
                     name="amount"
                     value={formData.amount}
                     onChange={handleChange}
-                    readOnly
+                    readOnly={invoice?.total > 0}
                     className="form-control-plaintext text-success fw-bold"
                   />
                 </div>
@@ -130,7 +147,7 @@ const ReceiptPayment = ({
                   <input
                     type="number"
                     step="0.01"
-                    value={invoice.balance || formData.amount}
+                    value={invoice?.balance || formData.amount}
                     readOnly
                     className="form-control-plaintext text-warning fw-bold"
                   />
@@ -147,7 +164,7 @@ const ReceiptPayment = ({
                 value={formData.receiptAmount}
                 onChange={handleChange}
                 required
-                max={invoice.balance || formData.amount || 999999}
+                max={invoice?.balance || formData.amount || 999999}
               />
             </div>
 
@@ -183,14 +200,86 @@ const ReceiptPayment = ({
             </div>
           </div>
 
-          <button type="submit" className="submit-btn">
-            <i className="bi bi-check-circle me-2"></i>
-            Save Receipt & Print
-          </button>
+          <div className="d-flex gap-3 flex-wrap">
+            <button type="submit" className="submit-btn">
+              <i className="bi bi-check-circle me-2"></i>
+              Save Receipt
+            </button>
+            <button type="button" className="btn btn-outline-secondary" onClick={resetForm}>
+              <i className="bi bi-arrow-clockwise me-2"></i>
+              Reset
+            </button>
+          </div>
         </form>
+      </div>
+
+      {/* Receipts Grid */}
+      <div className="table-container mt-5">
+        <div className="d-flex justify-content-between align-items-center mb-3">
+          <h4 className="fw-bold mb-0">
+            <i className="bi bi-list-ul me-2 text-primary"></i>
+            Saved Receipts <span className="badge bg-primary">{receipts.length}</span>
+          </h4>
+        </div>
+
+        {receipts.length === 0 ? (
+          <div className="text-center py-5">
+            <i className="bi bi-inbox display-1 text-muted d-block mb-3"></i>
+            <h5 className="text-muted">No receipts saved yet</h5>
+          </div>
+        ) : (
+          <div className="table-responsive">
+            <table className="table table-hover align-middle">
+              <thead className="table-dark">
+                <tr>
+                  <th>Date</th>
+                  <th>Doc No</th>
+                  <th>Company / Customer</th>
+                  <th className="text-end">Invoice Total</th>
+                  <th className="text-end">Receipt Amount</th>
+                  <th className="text-end">Balance</th>
+                  <th>Mode</th>
+                  <th>Type</th>
+                  <th>Remarks</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receipts.map(r => (
+                  <tr key={r.id}>
+                    <td><small>{r.date}</small></td>
+                    <td><span className="badge bg-primary">{r.paymentDocNumber}</span></td>
+                    <td className="fw-semibold">{r.companyName}</td>
+                    <td className="text-end">₹{(r.invoiceTotal || 0).toFixed(2)}</td>
+                    <td className="text-end text-success fw-bold">₹{(r.receiptAmount || 0).toFixed(2)}</td>
+                    <td className="text-end text-warning">₹{(r.balance || 0).toFixed(2)}</td>
+                    <td><span className="badge bg-info text-dark">{r.mode}</span></td>
+                    <td><span className="badge bg-secondary">{r.type}</span></td>
+                    <td><small className="text-muted">{r.remarks}</small></td>
+                    <td>
+                      <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(r.id)} title="Delete">
+                        <i className="bi bi-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="table-secondary fw-bold">
+                <tr>
+                  <td colSpan="3">Total ({receipts.length} receipts)</td>
+                  <td className="text-end">₹{receipts.reduce((s, r) => s + (r.invoiceTotal || 0), 0).toFixed(2)}</td>
+                  <td className="text-end text-success">₹{receipts.reduce((s, r) => s + (r.receiptAmount || 0), 0).toFixed(2)}</td>
+                  <td className="text-end text-warning">₹{receipts.reduce((s, r) => s + (r.balance || 0), 0).toFixed(2)}</td>
+                  <td colSpan="4"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 export default ReceiptPayment;
+

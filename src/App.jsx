@@ -129,8 +129,9 @@ function App() {
 {currentPage === 'dashboard' && <Dashboard />}
 
                     {currentPage === 'reciptpayment' && (
-                      <ReceiptPayment 
+                      <ReceiptPayment
                         invoice={selectedInvoice}
+                        receipts={receipts}
                         onClose={() => {
                           setSelectedInvoice(null);
                           setCurrentPage('home');
@@ -141,6 +142,9 @@ function App() {
                           alert(`Receipt saved! Balance updated for ${receipt.paymentDocNumber}`);
                           setSelectedInvoice(null);
                           setCurrentPage('home');
+                        }}
+                        onDeleteReceipt={(id) => {
+                          setReceipts(prev => prev.filter(r => r.id !== id));
                         }}
                       />
                     )}

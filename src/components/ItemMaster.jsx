@@ -1,83 +1,40 @@
-import React, { useState } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useItemMaster } from '../contexts/ItemMasterContext';
 
+const API_URL = '/api/itemmaster';
+
+const EMPTY_ITEM = {
+  name: '',
+  defaultRate: 0,
+  defaultTaxPercent: 9
+};
+
+const num = (val) => (val !== undefined && val !== null ? Number(val) : 0);
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  return isNaN(d) ? '-' : d.toLocaleDateString('en-IN');
+};
+
 const ItemMaster = () => {
-  const { items, setItems } = useItemMaster();
+  const { items, refreshItems } = useItemMaster();
 
-  const [newItem, setNewItem] = useState({
-    name: '',
-    defaultRate: 0,
-    defaultTaxPercent: 9,
-    stock: 0
-  });
-
+  const [newItem, setNewItem] = useState({ ...EMPTY_ITEM });
   const [editingId, setEditingId] = useState(null);
-  const [editItem, setEditItem] = useState({
-    name: '',
-    defaultRate: 0,
-    defaultTaxPercent: 9,
-    stock: 0
-  });
-
+  const [editItem, setEditItem] = useState({ ...EMPTY_ITEM });
   const [searchTerm, setSearchTerm] = useState('');
   const [nameError, setNameError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  // Add Item
-  const addItem = () => {
-    if (newItem.name.trim()) {
-      setItems([
-        ...items,
-        { id: uuidv4(), ...newItem, name: newItem.name.trim() }
-      ]);
-      setNewItem({
-        name: '',
-        defaultRate: 0,
-        defaultTaxPercent: 9,
-        stock: 0
-      });
-    }
-  };
+  // ── Load from DB on mount ──────────────────────────────────────────────────
+  useEffect(() => {
+    refreshItems();
+  }, []);
 
-  // Edit
-  const editItemFn = (item) => {
-    setEditingId(item.id);
-    setEditItem(item);
-  };
-
-  // Save Edit
-  const saveEdit = () => {
-    if (editItem.name.trim()) {
-      setItems(
-        items.map((item) =>
-          item.id === editingId ? editItem : item
-        )
-      );
-      setEditingId(null);
-      setEditItem({
-        name: '',
-        defaultRate: 0,
-        defaultTaxPercent: 9,
-        stock: 0
-      });
-    }
-  };
-
-  // Delete
-  const deleteItemFn = (id) => {
-    if (window.confirm('Delete this item?')) {
-      setItems(items.filter((item) => item.id !== id));
-    }
-  };
-
-  // Filter
-  const filteredItems = items.filter((item) =>
-    item.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // Validation
-  const validateForm = () => {
-    if (!newItem.name.trim()) {
+  const validateForm = (item) => {
+    if (!item.name.trim()) {
       setNameError('Item name is required');
       return false;
     }
@@ -85,40 +42,100 @@ const ItemMaster = () => {
     return true;
   };
 
-  // Export CSV
+  // ── ADD → POST to DB ───────────────────────────────────────────────────────
+  const addItem = async () => {
+    if (!validateForm(newItem)) return;
+    setSaving(true);
+    try {
+      await axios.post(API_URL, {
+        name: newItem.name.trim(),
+        defaultRate: num(newItem.defaultRate),
+        defaultTaxPercent: num(newItem.defaultTaxPercent)
+      });
+      await refreshItems();
+      setNewItem({ ...EMPTY_ITEM });
+      setNameError('');
+    } catch (err) {
+      console.error('Add item error:', err);
+      alert('Error adding item: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── EDIT — open form ───────────────────────────────────────────────────────
+  const editItemFn = (item) => {
+    setEditingId(item.ItemCode);
+    setEditItem({
+      name: item.ItemName ?? '',
+      defaultRate: num(item.Rate),
+      defaultTaxPercent: num(item.Tax)
+    });
+  };
+
+  // ── SAVE EDIT → PUT to DB ──────────────────────────────────────────────────
+  const saveEdit = async () => {
+    if (!editItem.name.trim()) return;
+    setSaving(true);
+    try {
+      await axios.put(`${API_URL}/${editingId}`, {
+        name: editItem.name.trim(),
+        defaultRate: num(editItem.defaultRate),
+        defaultTaxPercent: num(editItem.defaultTaxPercent)
+      });
+      await refreshItems();
+      setEditingId(null);
+      setEditItem({ ...EMPTY_ITEM });
+    } catch (err) {
+      console.error('Update item error:', err);
+      alert('Error updating item: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── DELETE → DELETE from DB ────────────────────────────────────────────────
+  const deleteItemFn = async (id) => {
+    if (!window.confirm('Delete this item?')) return;
+    try {
+      await axios.delete(`${API_URL}/${id}`);
+      await refreshItems();
+    } catch (err) {
+      console.error('Delete item error:', err);
+      alert('Error deleting item: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const filteredItems = items.filter((item) =>
+    (item.ItemName ?? '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const exportCSV = (data, filename) => {
     if (data.length === 0) return;
-
-    const headers = ['Name', 'Rate', 'TaxPercent'];
-
+    const headers = ['ItemCode', 'ItemName', 'Rate', 'Tax', 'CreatedDate'];
     const csvContent = [
       headers.join(','),
       ...data.map((row) =>
-        [row.name, row.defaultRate, row.defaultTaxPercent].join(',')
+        [row.ItemCode, row.ItemName, num(row.Rate), num(row.Tax), formatDate(row.CreatedDate)].join(',')
       )
     ].join('\n');
-
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
-
     const a = document.createElement('a');
     a.href = url;
     a.download = `${filename}-${Date.now()}.csv`;
     a.click();
-
     window.URL.revokeObjectURL(url);
   };
 
   return (
     <>
       <div className="modal fade glass-card" id="itemModal" tabIndex="-1">
-        <div className="modal-dialog modal-xl">
+        <div className="modal-dialog modal-xl modal-fullscreen-sm-down">
           <div className="modal-content glass-card shadow-xl">
 
             <div className="modal-header border-0 pb-0">
-              <h3 className="modal-title fw-bold text-primary">
-                Item Master
-              </h3>
+              <h3 className="modal-title fw-bold text-primary">Item Master</h3>
               <button className="btn-close" data-bs-dismiss="modal"></button>
             </div>
 
@@ -127,137 +144,110 @@ const ItemMaster = () => {
               {/* Add Item */}
               <div className="glass-card p-4 mb-4">
                 <h5 className="fw-semibold mb-3">Add New Item</h5>
+                <div className="row g-3 align-items-end">
 
-                <div className="row g-3">
-                  <div className="col-lg-4">
-                    <label>Item Name *</label>
+                  <div className="col-6 col-md-3 col-lg-2">
+                    <label className="form-label small fw-semibold">Item Code</label>
+                    <input className="form-control text-muted fst-italic" value="Auto" disabled />
+                  </div>
+
+                  <div className="col-6 col-md-3 col-lg-2">
+                    <label className="form-label small fw-semibold">Created Date</label>
+                    <input className="form-control text-muted fst-italic"
+                      value={new Date().toLocaleDateString('en-IN')} disabled />
+                  </div>
+
+                  <div className="col-12 col-md-6 col-lg-3">
+                    <label className="form-label small fw-semibold">Item Name *</label>
                     <input
-                      className="form-control"
+                      className={`form-control ${nameError ? 'is-invalid' : ''}`}
                       value={newItem.name}
-                      onChange={(e) =>
-                        setNewItem({ ...newItem, name: e.target.value })
-                      }
-                    />
-                    {nameError && (
-                      <div className="text-danger small">
-                        {nameError}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="col-lg-3">
-                    <label>Rate (₹)</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={newItem.defaultRate}
-                      onChange={(e) =>
-                        setNewItem({
-                          ...newItem,
-                          defaultRate: parseFloat(e.target.value) || 0
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="col-lg-2">
-                    <label>Tax (%)</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={newItem.defaultTaxPercent}
-                      onChange={(e) =>
-                        setNewItem({
-                          ...newItem,
-                          defaultTaxPercent:
-                            parseFloat(e.target.value) || 9
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="col-lg-3 d-flex align-items-end">
-                    <button
-                      className="btn btn-success w-100"
-                      onClick={() => {
-                        if (validateForm()) addItem();
+                      onChange={(e) => {
+                        setNewItem({ ...newItem, name: e.target.value });
+                        if (nameError) setNameError('');
                       }}
-                    >
+                      placeholder="e.g. Rice, Sugar..."
+                    />
+                    {nameError && <div className="invalid-feedback">{nameError}</div>}
+                  </div>
+
+                  <div className="col-6 col-md-3 col-lg-2">
+                    <label className="form-label small fw-semibold">Rate (₹)</label>
+                    <input type="number" min="0" step="0.01" className="form-control"
+                      value={newItem.defaultRate}
+                      onChange={(e) => setNewItem({ ...newItem, defaultRate: parseFloat(e.target.value) || 0 })} />
+                  </div>
+
+                  <div className="col-6 col-md-3 col-lg-1">
+                    <label className="form-label small fw-semibold">Tax (%)</label>
+                    <input type="number" min="0" step="0.01" className="form-control"
+                      value={newItem.defaultTaxPercent}
+                      onChange={(e) => setNewItem({
+                        ...newItem,
+                        defaultTaxPercent: isNaN(parseFloat(e.target.value)) ? 9 : parseFloat(e.target.value)
+                      })} />
+                  </div>
+
+                  <div className="col-12 col-md-6 col-lg-2">
+                    <button className="btn btn-success w-100" onClick={addItem} disabled={saving}>
+                      {saving
+                        ? <span className="spinner-border spinner-border-sm me-1"></span>
+                        : <i className="bi bi-plus-lg me-1"></i>
+                      }
                       Add Item
                     </button>
                   </div>
+
                 </div>
               </div>
 
-              {/* Search */}
-              <input
-                className="form-control mb-3"
-                placeholder="Search..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-
-              {/* Header */}
-              <div className="d-flex justify-content-between mb-2">
-                <h6>Items ({filteredItems.length})</h6>
-                <button
-                  className="btn btn-outline-success btn-sm"
-                  onClick={() => exportCSV(filteredItems, 'items')}
-                >
+              {/* Search & Export */}
+              <div className="d-flex gap-2 mb-3">
+                <input className="form-control" placeholder="Search items..."
+                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                <button className="btn btn-outline-success btn-sm text-nowrap"
+                  onClick={() => exportCSV(filteredItems, 'items')}>
                   Export CSV
                 </button>
               </div>
+
+              <h6 className="mb-2">Items ({filteredItems.length})</h6>
 
               {/* Table */}
               <div className="table-responsive">
                 <table className="table table-hover">
                   <thead>
                     <tr>
+                      <th>Item Code</th>
                       <th>Item Name</th>
-                      <th className="text-end">Rate</th>
+                      <th className="text-end">Rate (₹)</th>
                       <th className="text-center">Tax %</th>
+                      <th>Created Date</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
-
                   <tbody>
                     {filteredItems.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.name}</td>
-
-                        <td className="text-end">
-                          ₹{item.defaultRate.toFixed(2)}
-                        </td>
-
-                        {/* ✅ FIXED TAX ALIGNMENT */}
+                      <tr key={item.ItemCode}>
+                        <td><span className="badge bg-secondary">{item.ItemCode}</span></td>
+                        <td>{item.ItemName}</td>
+                        <td className="text-end">₹{num(item.Rate).toFixed(2)}</td>
                         <td className="text-center">
-                          <span className="badge bg-success">
-                            {item.defaultTaxPercent}%
-                          </span>
+                          <span className="badge bg-success">{num(item.Tax)}%</span>
                         </td>
-
+                        <td className="text-muted small">{formatDate(item.CreatedDate)}</td>
                         <td>
-                          <button
-                            className="btn btn-sm btn-primary me-1"
-                            onClick={() => editItemFn(item)}
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            className="btn btn-sm btn-danger"
-                            onClick={() => deleteItemFn(item.id)}
-                          >
-                            Delete
-                          </button>
+                          <div className="d-flex flex-wrap gap-1">
+                            <button className="btn btn-sm btn-primary" onClick={() => editItemFn(item)}>Edit</button>
+                            <button className="btn btn-sm btn-danger" onClick={() => deleteItemFn(item.ItemCode)}>Delete</button>
+                          </div>
                         </td>
                       </tr>
                     ))}
-
                     {filteredItems.length === 0 && (
                       <tr>
-                        <td colSpan="4" className="text-center">
-                          No items found
+                        <td colSpan="6" className="text-center text-muted py-4">
+                          {items.length === 0 ? 'No items yet. Add your first item above.' : 'No items match your search.'}
                         </td>
                       </tr>
                     )}
@@ -267,55 +257,49 @@ const ItemMaster = () => {
 
               {/* Edit Section */}
               {editingId && (
-                <div className="mt-4">
-                  <h5>Edit Item</h5>
+                <div className="glass-card p-4 mt-4">
+                  <h5 className="fw-semibold mb-3">
+                    Edit Item <span className="badge bg-secondary ms-2 fs-6">#{editingId}</span>
+                  </h5>
+                  <div className="row g-3 align-items-end">
 
-                  <input
-                    className="form-control mb-2"
-                    value={editItem.name}
-                    onChange={(e) =>
-                      setEditItem({ ...editItem, name: e.target.value })
-                    }
-                  />
+                    <div className="col-12 col-md-6 col-lg-4">
+                      <label className="form-label small fw-semibold">Item Name</label>
+                      <input className="form-control" value={editItem.name}
+                        onChange={(e) => setEditItem({ ...editItem, name: e.target.value })} />
+                    </div>
 
-                  <input
-                    type="number"
-                    className="form-control mb-2"
-                    value={editItem.defaultRate}
-                    onChange={(e) =>
-                      setEditItem({
-                        ...editItem,
-                        defaultRate: parseFloat(e.target.value) || 0
-                      })
-                    }
-                  />
+                    <div className="col-6 col-md-3 col-lg-2">
+                      <label className="form-label small fw-semibold">Rate (₹)</label>
+                      <input type="number" min="0" step="0.01" className="form-control"
+                        value={editItem.defaultRate}
+                        onChange={(e) => setEditItem({ ...editItem, defaultRate: parseFloat(e.target.value) || 0 })} />
+                    </div>
 
-                  <input
-                    type="number"
-                    className="form-control mb-2"
-                    value={editItem.defaultTaxPercent}
-                    onChange={(e) =>
-                      setEditItem({
-                        ...editItem,
-                        defaultTaxPercent:
-                          parseFloat(e.target.value) || 9
-                      })
-                    }
-                  />
+                    <div className="col-6 col-md-3 col-lg-2">
+                      <label className="form-label small fw-semibold">Tax (%)</label>
+                      <input type="number" min="0" step="0.01" className="form-control"
+                        value={editItem.defaultTaxPercent}
+                        onChange={(e) => setEditItem({
+                          ...editItem,
+                          defaultTaxPercent: isNaN(parseFloat(e.target.value)) ? 9 : parseFloat(e.target.value)
+                        })} />
+                    </div>
 
-                  <button
-                    className="btn btn-success me-2"
-                    onClick={saveEdit}
-                  >
-                    Save
-                  </button>
+                    <div className="col-12 col-md-6 col-lg-4">
+                      <div className="d-flex gap-2">
+                        <button className="btn btn-success flex-fill" onClick={saveEdit} disabled={saving}>
+                          {saving ? <span className="spinner-border spinner-border-sm me-1"></span> : null}
+                          Save
+                        </button>
+                        <button className="btn btn-secondary flex-fill"
+                          onClick={() => { setEditingId(null); setEditItem({ ...EMPTY_ITEM }); }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
 
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setEditingId(null)}
-                  >
-                    Cancel
-                  </button>
+                  </div>
                 </div>
               )}
 

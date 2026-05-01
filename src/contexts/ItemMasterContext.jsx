@@ -1,36 +1,36 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+// src/contexts/ItemMasterContext.jsx
+import React, { createContext, useContext, useState, useCallback } from 'react';
+import axios from 'axios';
 
 const ItemMasterContext = createContext();
 
-export const ItemMasterProvider = ({ children }) => {
-  const [items, setItems] = useState([]); // Existing items will get stock: undefined, treated as 0
+export const useItemMaster = () => useContext(ItemMasterContext);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('itemMaster');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // Migrate existing items to include stock: 0
-      const migrated = parsed.map(item => ({ ...item, stock: item.stock ?? 0 }));
-      setItems(migrated);
+export const ItemMasterProvider = ({ children }) => {
+  const [items, setItems] = useState([]);
+
+  // Fetch all items from SQL Server via backend API
+  const refreshItems = useCallback(async () => {
+    try {
+      const res = await axios.get('/api/itemmaster');
+      setItems(res.data);
+    } catch (err) {
+      console.error('Failed to load items from DB:', err.message);
+      // Fallback to localStorage cache if API is unreachable
+      const cached = localStorage.getItem('itemMaster');
+      if (cached) setItems(JSON.parse(cached));
     }
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem('itemMaster', JSON.stringify(items));
-  }, [items]);
+  // Keep localStorage in sync as a cache
+  const setItemsWithCache = useCallback((data) => {
+    setItems(data);
+    localStorage.setItem('itemMaster', JSON.stringify(data));
+  }, []);
 
   return (
-    <ItemMasterContext.Provider value={{ items, setItems }}>
+    <ItemMasterContext.Provider value={{ items, setItems: setItemsWithCache, refreshItems }}>
       {children}
     </ItemMasterContext.Provider>
   );
 };
-
-export const useItemMaster = () => {
-  const context = useContext(ItemMasterContext);
-  if (!context) {
-    throw new Error('useItemMaster must be used within ItemMasterProvider');
-  }
-  return context;
-};
-

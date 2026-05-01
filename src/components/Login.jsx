@@ -17,7 +17,6 @@ const Login = ({ onLogin }) => {
 
     const trimUser = username.trim();
 
-    // ✅ validation
     if (!trimUser || !password) {
       setError('Please enter both username and password.');
       setLoading(false);
@@ -25,21 +24,31 @@ const Login = ({ onLogin }) => {
     }
 
     try {
-      // ✅ API call to backend
       const res = await axios.post('/api/login', {
         username: trimUser,
         password: password
       });
 
       if (res.data.success) {
-        onLogin(res.data.user.username);
+        // Support both 'username' and 'Username' column names (MSSQL is case-insensitive but JS is not)
+        const loggedInUser =
+          res.data.user.username ||
+          res.data.user.Username ||
+          trimUser;
+        onLogin(loggedInUser);
       } else {
-        setError('Invalid username or password.');
+        // Show the exact error message from the server if available
+        setError(res.data.error || 'Invalid username or password.');
       }
-
     } catch (err) {
-      console.error(err);
-      setError('Server error. Please try again.');
+      console.error('Login error:', err);
+      if (err.response?.data?.error) {
+        setError(err.response.data.error);
+      } else if (err.code === 'ERR_NETWORK' || err.code === 'ERR_CONNECTION_REFUSED') {
+        setError('Cannot connect to server. Please ensure the backend is running.');
+      } else {
+        setError('Server error. Please try again.');
+      }
     }
 
     setLoading(false);

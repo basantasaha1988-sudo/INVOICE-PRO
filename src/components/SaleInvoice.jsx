@@ -839,8 +839,10 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
                           <td>{bill.customer?.name || '—'}</td>
                           <td className="text-end">₹{(bill.totals?.taxable || 0).toFixed(2)}</td>
                           <td className="text-end text-warning">₹{(bill.totals?.tax || 0).toFixed(2)}</td>
-<td className="text-end fw-bold text-success">₹{(bill.totals?.total || 0).toFixed(2)}</td>
-                          <br /><small className="text-muted">Balance: ₹{Math.max(0, (bill.totals?.total || 0) - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + (r.receiptAmount || 0), 0)).toLocaleString()}</small>
+                          <td className="text-end fw-bold text-success">
+                            ₹{(bill.totals?.total || 0).toFixed(2)}
+                            <br /><small className="text-muted">Balance: ₹{Math.max(0, (bill.totals?.total || 0) - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + (r.receiptAmount || 0), 0)).toLocaleString()}</small>
+                          </td>
                           <td><span className={`badge ${bill.gstMode === 'none' ? 'bg-secondary' : 'bg-success'}`}>{bill.gstMode}</span></td>
                           <td>
                             <div className="btn-group btn-group-sm">

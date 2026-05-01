@@ -1,30 +1,40 @@
-# RECEIPT-PAYMENT FIX TODO
-- [x] Step 1: Read ReceiptPayment.css → Good styling available.
+# Fix ItemMaster Network Error & Responsiveness
 
-## Status: Retrying Step 2 - Fix reciptpayment.jsx syntax/logic (previous edit had incomplete replacements).
+## Information Gathered
+1. **Network Error (`ERR_CONNECTION_REFUSED`)**:
+   - `ItemMaster.jsx` and `ItemMasterContext.jsx` hardcoded `http://localhost:5000/api/itemmaster`, bypassing the Vite proxy.
+   - `vite.config.ts` had a proxy for `/api` but included an incorrect `rewrite` rule that stripped `/api`, causing 404s even if the proxy was used.
 
-## Completed:
-- [x] Step 2: Full-page ReceiptPayment with CSS, prefill from invoice.
-- [x] Step 3: App.jsx onReceiptSaved callback.
-- [x] Step 4: JSX fixed, ready to test.
+2. **Responsiveness Issues**:
+   - Modal used `modal-xl` which was too wide for mobile.
+   - Form only used `col-lg-*` classes, causing poor stacking on tablets and phones.
+   - Inline edit section lacked responsive grid classes.
+   - Table action buttons could overflow on narrow viewports.
 
-**PER SAVED BILL PAYMENT BUTTON ADDED**
-User feedback: "saved bill gread option need a button for payment"
-- Added **"Pay Now" button** in saved bills table (Actions column).
-- Clicks → direct to ReceiptPayment with full invoice data prefills.
-- Payment done → balance updates inline for that bill.
+## Plan
 
-**Full Flow:** Create bill → Save → Table "Pay Now" → Receipt form → Save → Balance shows "₹X remaining" instantly.
+| # | File | Change |
+|---|------|--------|
+| 1 | `vite.config.ts` | **Fix proxy**: Remove the `rewrite` rule so `/api/*` correctly proxies to `http://localhost:5000/api/*`. |
+| 2 | `src/contexts/ItemMasterContext.jsx` | **Fix API URL**: Change `API_URL` from `http://localhost:5000/api/itemmaster` to `/api/itemmaster`. |
+| 3 | `src/components/ItemMaster.jsx` | **Fix API URL**: Change `API_URL` to `/api/itemmaster`.<br>**Responsive modal**: Change `modal-xl` to `modal-lg modal-fullscreen-sm-down`.<br>**Responsive form**: Update grid classes to `col-12 col-md-6 col-lg-4` etc.<br>**Responsive edit section**: Wrap inputs in responsive rows.<br>**Responsive buttons**: Use flex-wrap utilities to prevent overflow. |
 
+## Status
+- [x] `vite.config.ts` proxy fixed
+- [x] `src/contexts/ItemMasterContext.jsx` API URL fixed
+- [x] `src/components/ItemMaster.jsx` API URL fixed
+- [x] `src/components/ItemMaster.jsx` modal made responsive
+- [x] `src/components/ItemMaster.jsx` add form made responsive
+- [x] `src/components/ItemMaster.jsx` edit section made responsive
+- [x] `src/components/ItemMaster.jsx` table action buttons made responsive
+- [x] `backend/server.js` auto-creates `ITEMMASTER` table on startup
+- [x] `backend/api/itemmaster.js` added input validation and null-coalescing for numeric fields
+- [x] `src/components/ItemMaster.jsx` improved error handling to show backend error messages
 
+## Follow-up Steps
+- Restart the backend server (`cd backend && node server.js`) so the table auto-creation runs.
+- Run frontend (`npm run dev`).
+- Test adding an item — the exact backend error will now show in the alert if something still fails.
+- Verify responsive layout on mobile/tablet/desktop.
 
-- [ ] Step 4-6: Test & complete.
-
-- [ ] Step 2: Edit src/components/reciptpayment.jsx → Restructure to full-page ReceiptPayment component (remove modal logic, add CSS import, always render form, handle invoice prop, back button).
-- [ ] Step 3: Edit src/App.jsx → Add onReceiptSaved prop for handling saved receipts.
-- [ ] Step 4: Test integration: bun dev, login → SaleInvoice → select invoice → verify ReceiptPayment shows filled form.
-- [ ] Step 5: Test nav from Header → empty form works.
-- [ ] Step 6: Complete! Run attempt_completion.
-
-Progress: Created TODO.md. Next: Step 1.
 

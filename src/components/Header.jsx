@@ -3,19 +3,28 @@ import { useTheme, useAuth } from "../App";
 
 const Header = ({ onNavigate, currentPage }) => {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [isMenuOpen, setIsMenuOpen]             = useState(false);
+  const [searchQuery, setSearchQuery]           = useState("");
   const [showThemeDropdown, setShowThemeDropdown] = useState(false);
-  const userDropdownRef = useRef(null);
+  const userDropdownRef  = useRef(null);
   const themeDropdownRef = useRef(null);
 
   const { currentTheme, setTheme } = useTheme();
-  const { user, logout } = useAuth();
+  const { user, logout }           = useAuth();
+
+  // ── 6 themes only ──────────────────────────────
+  const themes = [
+    { id: "green",  label: "🟢 Green",  dot: "#22c55e" },
+    { id: "black",  label: "⚫ Black",  dot: "#141414" },
+    { id: "red",    label: "🔴 Red",    dot: "#ef4444" },
+    { id: "orange", label: "🟠 Orange", dot: "#f97316" },
+    { id: "yellow", label: "🟡 Yellow", dot: "#eab308" },
+    { id: "purple", label: "🟣 Purple", dot: "#a855f7" },
+  ];
 
   const handleSearch = (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
-    console.log("Searching for:", searchQuery);
   };
 
   const handleLogout = () => {
@@ -26,61 +35,56 @@ const Header = ({ onNavigate, currentPage }) => {
     }
   };
 
-  const toggleUserDropdown = () => setShowUserDropdown(!showUserDropdown);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (userDropdownRef.current && !userDropdownRef.current.contains(event.target)) {
-        setShowUserDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const allowedThemes = [
-    "light", "dark", "red", "blue", "green", "yellow",
-    "gold", "black", "neon-green", "black-lemon", "dark-yellow",
-  ];
-
-  const themeColors = {
-    light: "#497cae",
-    dark: "#181a1e",
-    red: "#fb0303",
-    blue: "#0968e5",
-    green: "#82e229",
-    yellow: "#e6f607",
-    gold: "#fcf8e3",
-    black: "#141414",
-    "neon-green": "#20cc20",
-    "black-lemon": "#df0f0f",
-    "dark-yellow": "#f1ce07",
-  };
-
-  const getThemeDisplayName = (theme) => {
-    return theme
-      .split("-")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (themeDropdownRef.current && !themeDropdownRef.current.contains(event.target)) {
-        setShowThemeDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
   const handleNavigate = (page) => {
     onNavigate && onNavigate(page);
     setIsMenuOpen(false);
   };
 
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (userDropdownRef.current  && !userDropdownRef.current.contains(e.target))  setShowUserDropdown(false);
+      if (themeDropdownRef.current && !themeDropdownRef.current.contains(e.target)) setShowThemeDropdown(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const dropdownStyle = {
+    position: "absolute",
+    top: "calc(100% + 8px)",
+    right: 0,
+    zIndex: 99999,
+    minWidth: 180,
+    background: "rgba(255,255,255,0.92)",
+    backdropFilter: "blur(24px)",
+    WebkitBackdropFilter: "blur(24px)",
+    border: "1.5px solid rgba(200,200,240,0.55)",
+    borderRadius: 14,
+    boxShadow: "0 16px 48px rgba(100,100,200,0.18)",
+    padding: "6px",
+    listStyle: "none",
+    margin: 0,
+  };
+
+  const dropdownItemStyle = {
+    display: "block",
+    width: "100%",
+    padding: "9px 14px",
+    borderRadius: 9,
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    fontFamily: "inherit",
+    color: "#334",
+    textAlign: "left",
+    transition: "background 0.15s",
+  };
+
   return (
-    <header className="glass-card py-3 shadow-lg">
+    <header style={{ position: "relative", zIndex: 1000 }} className="glass-card py-3 shadow-lg">
       <nav className="navbar navbar-expand-lg">
         <div className="container-fluid">
 
@@ -93,54 +97,29 @@ const Header = ({ onNavigate, currentPage }) => {
           </button>
 
           {/* Mobile Toggle */}
-          <button
-            className="navbar-toggler border-0"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-          >
+          <button className="navbar-toggler border-0" onClick={() => setIsMenuOpen(!isMenuOpen)}>
             <i className={`bi ${isMenuOpen ? "bi-x-lg" : "bi-list"}`}></i>
           </button>
 
           <div className={`navbar-collapse ${isMenuOpen ? "show" : ""}`}>
 
-            {/* Navigation */}
+            {/* Navigation Links */}
             <ul className="navbar-nav me-auto">
-
-              <li className="nav-item">
-                <button
-                  className={`nav-link border-0 bg-transparent ${currentPage === "home" ? "active" : ""}`}
-                  onClick={() => handleNavigate("home")}
-                >
-                  Sale Invoice Booking
-                </button>
-              </li>
-
-              <li className="nav-item">
-                <button
-                  className={`nav-link border-0 bg-transparent ${currentPage === "dashboard" ? "active" : ""}`}
-                  onClick={() => handleNavigate("dashboard")}
-                >
-                  Dashboard
-                </button>
-              </li>
-
-              <li className="nav-item">
-                <button
-                  className={`nav-link border-0 bg-transparent ${currentPage === "inventory" ? "active" : ""}`}
-                  onClick={() => handleNavigate("inventory")}
-                >
-                  Inventory
-                </button>
-              </li>
-
-              <li className="nav-item">
-                <button
-                  className={`nav-link border-0 bg-transparent ${currentPage === "reciptpayment" ? "active" : ""}`}
-                  onClick={() => handleNavigate("reciptpayment")}
-                >
-                  Receipt Payment
-                </button>
-              </li>
-
+              {[
+                { page: "home",          label: "Sale Invoice" },
+                { page: "dashboard",     label: "Dashboard" },
+                { page: "inventory",     label: "Inventory" },
+                { page: "reciptpayment", label: "Receipt Payment" },
+              ].map(({ page, label }) => (
+                <li key={page} className="nav-item">
+                  <button
+                    className={`nav-link border-0 bg-transparent ${currentPage === page ? "active" : ""}`}
+                    onClick={() => handleNavigate(page)}
+                  >
+                    {label}
+                  </button>
+                </li>
+              ))}
             </ul>
 
             {/* Search */}
@@ -155,88 +134,83 @@ const Header = ({ onNavigate, currentPage }) => {
 
             {/* Masters */}
             <div className="d-flex gap-2 me-3">
-              <button
-                className="btn btn-outline-primary btn-sm"
-                data-bs-toggle="modal"
-                data-bs-target="#itemModal"
-              >
-                Items
-              </button>
-
-              <button
-                className="btn btn-outline-success btn-sm"
-                data-bs-toggle="modal"
-                data-bs-target="#companyModal"
-              >
-                Companies
-              </button>
+              <button className="g-btn g-btn-ghost g-btn-sm"   data-bs-toggle="modal" data-bs-target="#itemModal">Items</button>
+              <button className="g-btn g-btn-success g-btn-sm" data-bs-toggle="modal" data-bs-target="#companyModal">Companies</button>
+              <button className="g-btn g-btn-cyan g-btn-sm"    data-bs-toggle="modal" data-bs-target="#customerModal">Customers</button>
             </div>
 
-            {/* ✅ NEW USER SECTION */}
-            <div className="me-3">
+            {/* User Dropdown */}
+            <div className="me-3" style={{ position: "relative" }} ref={userDropdownRef}>
               {user ? (
-                <div className="dropdown" ref={userDropdownRef}>
+                <>
                   <button
-                    className="btn btn-light border d-flex align-items-center gap-2 px-3"
-                    onClick={toggleUserDropdown}
+                    className="g-btn g-btn-silver d-flex align-items-center gap-2"
+                    onClick={() => setShowUserDropdown(v => !v)}
                   >
                     <i className="bi bi-person-circle"></i>
                     <span>{user.username}</span>
-                    <i className={`bi ${showUserDropdown ? 'bi-chevron-up' : 'bi-chevron-down'} small`}></i>
+                    <i className={`bi ${showUserDropdown ? "bi-chevron-up" : "bi-chevron-down"} small`}></i>
                   </button>
 
                   {showUserDropdown && (
-                    <ul className="dropdown-menu dropdown-menu-end shadow show">
-                      <li className="px-3 py-2 border-bottom">
-                        <div className="fw-semibold">{user.username}</div>
-                        <small className="text-muted">Logged in</small>
+                    <ul style={dropdownStyle}>
+                      <li style={{ padding: "8px 14px 10px", borderBottom: "1px solid rgba(200,200,240,0.4)", marginBottom: 4 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{user.username}</div>
+                        <small style={{ color: "#889", fontSize: 11 }}>Logged in</small>
                       </li>
-
                       <li>
                         <button
-                          className="dropdown-item text-danger"
+                          style={{ ...dropdownItemStyle, color: "#dc2626" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "rgba(220,38,38,0.07)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                           onClick={handleLogout}
                         >
-                          Logout
+                          <i className="bi bi-box-arrow-right me-2"></i>Logout
                         </button>
                       </li>
                     </ul>
                   )}
-                </div>
+                </>
               ) : (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => handleNavigate("login")}
-                >
-                  Login
-                </button>
+                <button className="g-btn g-btn-primary" onClick={() => handleNavigate("login")}>Login</button>
               )}
             </div>
 
-            {/* Theme */}
-            <div className="position-relative" ref={themeDropdownRef}>
+            {/* Theme Dropdown */}
+            <div style={{ position: "relative" }} ref={themeDropdownRef}>
               <button
-                className="btn btn-sm"
-                onClick={() => setShowThemeDropdown(!showThemeDropdown)}
+                className="g-btn g-btn-ghost g-btn-sm"
+                onClick={() => setShowThemeDropdown(v => !v)}
               >
-                Theme
+                <i className="bi bi-palette me-1"></i>Theme
               </button>
 
               {showThemeDropdown && (
-                <div className="dropdown-menu show p-2">
-                  {allowedThemes.map((theme) => (
-                    <button
-                      key={theme}
-                      className="dropdown-item"
-                      onClick={() => {
-                        setTheme(theme);
-                        setShowThemeDropdown(false);
-                      }}
-                    >
-                      {getThemeDisplayName(theme)}
-                    </button>
+                <ul style={{ ...dropdownStyle, minWidth: 160 }}>
+                  {themes.map(t => (
+                    <li key={t.id}>
+                      <button
+                        style={{
+                          ...dropdownItemStyle,
+                          background: currentTheme === t.id ? "rgba(26,86,219,0.08)" : "transparent",
+                          fontWeight: currentTheme === t.id ? 700 : 600,
+                        }}
+                        onMouseEnter={e => { if (currentTheme !== t.id) e.currentTarget.style.background = "rgba(100,100,200,0.07)"; }}
+                        onMouseLeave={e => { if (currentTheme !== t.id) e.currentTarget.style.background = "transparent"; }}
+                        onClick={() => { setTheme(t.id); setShowThemeDropdown(false); }}
+                      >
+                        <span style={{
+                          display: "inline-block", width: 10, height: 10,
+                          borderRadius: "50%", background: t.dot,
+                          marginRight: 8, verticalAlign: "middle",
+                          boxShadow: `0 0 6px ${t.dot}`,
+                        }} />
+                        {t.label.slice(3)}
+                        {currentTheme === t.id && <i className="bi bi-check2 ms-2 text-primary"></i>}
+                      </button>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
             </div>
 

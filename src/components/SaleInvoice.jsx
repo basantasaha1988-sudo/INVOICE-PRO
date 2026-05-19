@@ -3,12 +3,23 @@ import { useTheme } from '../App';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
 import { useItemMaster } from '../contexts/ItemMasterContext';
 import { useCompanyMaster } from '../contexts/CompanyMasterContext';
 
 // ─── GST rates as per Indian GST slabs ───────────────────────────────────────
 const GST_SLABS = [0, 5, 12, 18, 28];
-// Fixed
+
+// ─── Snap any DB tax value to nearest valid GST slab ─────────────────────────
+// DB stores raw values like 9, 2.5 etc. which are not in GST_SLABS.
+// A value not in the list causes <select value={9}> to visually show 0%
+// while the state stays 9 — so "0% selected" items still calculate tax.
+const snapToSlab = (val) => {
+  const n = Number(val) || 0;
+  if (GST_SLABS.includes(n)) return n;
+  return GST_SLABS.reduce((prev, curr) =>
+    Math.abs(curr - n) < Math.abs(prev - n) ? curr : prev, 0);
+};
 
 // ─── Bill number generator ────────────────────────────────────────────────────
 const generateBillNo = () => {
@@ -64,17 +75,97 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
 
   // ── Saved bills ─────────────────────────────────────────────────────────────
   const [bills, setBills] = useState([]);
+  const [billsLoading, setBillsLoading] = useState(false);
   const [stockWarnings, setStockWarnings] = useState([]);
   const [searchBill, setSearchBill] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'paid' | 'pending'
 
-  // ── Load / save ─────────────────────────────────────────────────────────────
+  // ── Customers (autocomplete) ────────────────────────────────────────────────
+  const [customerList, setCustomerList] = useState([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+
+  // ── Phone-first lookup (gate before invoice form) ───────────────────────────
+  const [phoneStep, setPhoneStep] = useState(true);   // true = show phone gate
+  const [phoneInput, setPhoneInput] = useState('');
+  const [phoneLookupStatus, setPhoneLookupStatus] = useState('idle'); // 'idle'|'found'|'new'
+  const [phoneMatches, setPhoneMatches] = useState([]);  // matched customers
+
   useEffect(() => {
-    const saved = localStorage.getItem('sale_bills');
-    if (saved) setBills(JSON.parse(saved));
-    const savedCo = localStorage.getItem('invoice_company');
-    if (savedCo) setCompany(JSON.parse(savedCo));
+    axios.get('/api/customers')
+      .then(res => setCustomerList(Array.isArray(res.data) ? res.data : []))
+      .catch(() => {});
   }, []);
 
+  const filteredCustomers = customerList.filter(c =>
+    customer.name && c.CustomerName.toLowerCase().includes(customer.name.toLowerCase())
+  );
+
+  const handleCustomerSelect = (c) => {
+    setCustomer(p => ({
+      ...p,
+      name:    c.CustomerName || '',
+      phone:   c.Phone        || '',
+      address: c.Address      || '',
+    }));
+    setShowCustomerDropdown(false);
+  };
+
+  // ── Phone lookup handler ─────────────────────────────────────────────────────
+  const handlePhoneLookup = () => {
+    const trimmed = phoneInput.trim();
+    if (!trimmed) return;
+    const matches = customerList.filter(c =>
+      (c.Phone || '').replace(/\D/g, '').includes(trimmed.replace(/\D/g, ''))
+    );
+    if (matches.length > 0) {
+      setPhoneMatches(matches);
+      setPhoneLookupStatus('found');
+    } else {
+      setPhoneMatches([]);
+      setPhoneLookupStatus('new');
+      // Pre-fill phone for new customer
+      setCustomer(p => ({ ...p, phone: trimmed }));
+      setPhoneStep(false);
+    }
+  };
+
+  const handlePhoneCustomerSelect = (c) => {
+    setCustomer(p => ({
+      ...p,
+      name:    c.CustomerName || '',
+      phone:   c.Phone        || '',
+      address: c.Address      || '',
+    }));
+    setPhoneStep(false);
+    setPhoneLookupStatus('idle');
+  };
+
+  const handlePhoneNewCustomer = () => {
+    setCustomer(p => ({ ...p, phone: phoneInput.trim() }));
+    setPhoneStep(false);
+    setPhoneLookupStatus('idle');
+  };
+
+  // ── Load bills from DB on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    const loadBills = async () => {
+      setBillsLoading(true);
+      try {
+        const res = await axios.get('/api/saleinvoice');
+        setBills(Array.isArray(res.data) ? res.data : []);
+      } catch (err) {
+        console.error('Failed to load bills from DB:', err.message);
+        // Fallback to localStorage cache
+        const cached = localStorage.getItem('sale_bills');
+        try { const parsed = JSON.parse(cached); setBills(Array.isArray(parsed) ? parsed : []); } catch { setBills([]); }
+      } finally {
+        setBillsLoading(false);
+      }
+    };
+    loadBills();
+  }, []);
+
+  // ── Keep localStorage as offline cache ───────────────────────────────────────
   useEffect(() => {
     localStorage.setItem('sale_bills', JSON.stringify(bills));
   }, [bills]);
@@ -141,7 +232,7 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
     if (m) {
       setItems(p => p.map(x => x.id === id ? {
         ...x, name: m.name, rate: m.defaultRate || 0,
-        gstPercent: m.defaultTaxPercent || 18, hsn: m.hsn || ''
+        gstPercent: snapToSlab(m.defaultTaxPercent), hsn: m.hsn || ''
       } : x));
     } else {
       updateItem(id, 'name', name);
@@ -179,8 +270,12 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
     }));
   }, [setItemMaster]);
 
-  // ── Save bill ────────────────────────────────────────────────────────────────
-  const saveBill = useCallback(() => {
+  // ── Save bill (saves to DB + keeps localStorage cache) ──────────────────────
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [isBillSaved, setIsBillSaved] = useState(false); // true after Save Bill clicked // { msg, type: 'success'|'danger' }
+
+  const saveBill = useCallback(async () => {
     if (!company.name.trim()) { alert('Please enter company name'); return; }
     if (!customer.name.trim()) { alert('Please enter customer name'); return; }
     if (items.every(i => !i.name)) { alert('Please add at least one item'); return; }
@@ -189,30 +284,64 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
       if (!window.confirm(`Stock warning:\n${stockWarnings.join('\n')}\n\nSave anyway?`)) return;
     }
 
+    const billId = editingBillId || uuidv4();
     const bill = {
-      id: editingBillId || uuidv4(),
+      id: billId,
       billNo, billDate, dueDate, notes,
       company, customer, items, totals, gstMode, isInterState,
       savedAt: new Date().toISOString()
     };
 
-    if (editingBillId) {
-      const old = bills.find(b => b.id === editingBillId);
-      if (old) restoreStock(old.items);
-      setBills(p => p.map(b => b.id === editingBillId ? bill : b));
-    } else {
-      setBills(p => [bill, ...p]);
-    }
+    setSaving(true);
+    try {
+      if (editingBillId) {
+        // Update in DB
+        await axios.put(`/api/saleinvoice/${editingBillId}`, bill);
+        // Restore old stock then deduct new
+        const old = bills.find(b => b.id === editingBillId);
+        if (old) restoreStock(old.items);
+        setBills(p => p.map(b => b.id === editingBillId ? bill : b));
+      } else {
+        // Create in DB
+        await axios.post('/api/saleinvoice', bill);
+        setBills(p => [bill, ...p]);
+      }
 
-    deductStock(items);
-    resetForm();
-    setActiveTab('list');
-    alert('✅ Bill saved successfully!');
+      deductStock(items);
+
+      // Auto-save customer to CUSTOMERS table
+      if (customer.name?.trim()) {
+        axios.post('/api/customers/upsert', {
+          name:    customer.name,
+          phone:   customer.phone,
+          address: customer.address,
+        }).then(res => {
+          // Refresh customer list for autocomplete
+          return axios.get('/api/customers');
+        }).then(res => {
+          setCustomerList(Array.isArray(res.data) ? res.data : []);
+        }).catch(err => {
+          console.warn('Customer save warning:', err.message);
+        });
+      }
+
+      setIsBillSaved(true);
+      resetForm();
+      setActiveTab('list');
+      showToast('✅ Bill saved and added to Saved Bills!');
+    } catch (err) {
+      console.error('Save bill error:', err);
+      showToast('❌ Failed to save bill: ' + (err.response?.data?.error || err.message), 'danger');
+    } finally {
+      setSaving(false);
+    }
   }, [company, customer, items, totals, billNo, billDate, dueDate, notes, gstMode, isInterState, editingBillId, bills, stockWarnings, deductStock, restoreStock, setActiveTab]);
 
   // ── Edit / Delete ────────────────────────────────────────────────────────────
   const editBill = (bill) => {
     setActiveTab('new');
+    setPhoneStep(false);   // customer already known — skip gate
+    setPhoneInput(bill.customer?.phone || '');
     setCompany(bill.company);
     setCustomer(bill.customer);
     setItems(bill.items.map(i => ({ ...i })));
@@ -226,15 +355,32 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
     setPreview(false);
   };
 
-  const deleteBill = (id) => {
+  const deleteBill = async (id) => {
     if (!window.confirm('Delete this bill?')) return;
-    const bill = bills.find(b => b.id === id);
-    if (bill) restoreStock(bill.items);
-    setBills(p => p.filter(b => b.id !== id));
+    try {
+      const res = await axios.delete(`/api/saleinvoice/${id}`);
+      if (res.data && res.data.error) {
+        showToast('❌ Failed to delete bill: ' + res.data.error, 'danger');
+        return;
+      }
+      const bill = bills.find(b => b.id === id);
+      if (bill) restoreStock(bill.items);
+      setBills(p => p.filter(b => b.id !== id));
+      showToast('🗑️ Bill deleted successfully.');
+    } catch (err) {
+      console.error('Delete bill error:', err);
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+      showToast('❌ Failed to delete bill: ' + msg, 'danger');
+    }
   };
 
   // ── Reset ────────────────────────────────────────────────────────────────────
   const resetForm = () => {
+    setIsBillSaved(false);
+    setPhoneStep(true);
+    setPhoneInput('');
+    setPhoneLookupStatus('idle');
+    setPhoneMatches([]);
     setCustomer({ name: '', address: '', city: '', state: '', pincode: '', gstin: '', phone: '' });
     setItems([{ id: uuidv4(), name: '', hsn: '', qty: 1, unit: 'Nos', rate: 0, disc: 0, gstPercent: 18 }]);
     setBillNo(generateBillNo());
@@ -244,6 +390,12 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
     setEditingBillId(null);
     setPreview(false);
     setStockWarnings([]);
+  };
+
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
   };
 
   // ── PDF ──────────────────────────────────────────────────────────────────────
@@ -259,27 +411,278 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
   };
 
   // ── Filtered bills ───────────────────────────────────────────────────────────
-  const filteredBills = bills.filter(b =>
-    b.customer?.name?.toLowerCase().includes(searchBill.toLowerCase()) ||
-    b.billNo?.toLowerCase().includes(searchBill.toLowerCase()) ||
-    b.company?.name?.toLowerCase().includes(searchBill.toLowerCase())
-  );
+  const getBillPaidAmount = (bill) =>
+    receipts.filter(r => r.paymentDocNumber === bill.billNo)
+      .reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+
+  const getBillStatus = (bill) =>
+    getBillPaidAmount(bill) >= (bill.totals?.total || 0) ? 'paid' : 'pending';
+
+  const filteredBills = bills.filter(b => {
+    const matchesSearch =
+      b.customer?.name?.toLowerCase().includes(searchBill.toLowerCase()) ||
+      b.billNo?.toLowerCase().includes(searchBill.toLowerCase()) ||
+      b.company?.name?.toLowerCase().includes(searchBill.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || getBillStatus(b) === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  // ── Glass styles injected once ───────────────────────────────────────────────
+  const glassStyles = `
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+    .si-wrap * { font-family: 'DM Sans', sans-serif; }
+    .si-wrap { background: linear-gradient(135deg, var(--page-bg-1, rgba(230,230,245,0.97)) 0%, var(--page-bg-2, rgba(200,200,240,0.93)) 100%) fixed; min-height: 100vh; transition: background 0.4s ease; }
+
+    .g-btn {
+      position: relative; border-radius: 50px; cursor: pointer;
+      transition: all 0.3s ease; overflow: hidden;
+      border: 2px solid rgba(255,255,255,0.25);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      font-size: 14px; font-weight: 600; letter-spacing: 0.4px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 10px 22px; color: #fff; text-decoration: none; outline: none;
+    }
+    .g-btn::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 45%;
+      background: linear-gradient(180deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 100%);
+      border-radius: 50px 50px 0 0; pointer-events: none;
+    }
+    .g-btn::after {
+      content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+      pointer-events: none;
+    }
+    .g-btn:hover { transform: translateY(-2px) scale(1.02); border-color: rgba(255,255,255,0.4); }
+    .g-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+
+    .g-btn-dark {
+      background: linear-gradient(135deg, rgba(25,25,50,0.7) 0%, rgba(10,10,25,0.85) 50%, rgba(50,20,100,0.65) 100%);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), inset 0 0 20px rgba(150,100,220,0.2), 0 0 40px rgba(150,100,220,0.25);
+    }
+    .g-btn-dark:hover { box-shadow: 0 15px 50px rgba(0,0,0,0.6), inset 0 0 30px rgba(150,100,220,0.3), 0 0 60px rgba(150,100,220,0.35); }
+
+    .g-btn-primary {
+      background: linear-gradient(135deg, rgba(26,86,219,0.6) 0%, rgba(30,64,175,0.75) 100%);
+      box-shadow: 0 8px 32px rgba(26,86,219,0.4), inset 0 0 25px rgba(100,150,255,0.25), 0 0 40px rgba(26,86,219,0.3);
+    }
+    .g-btn-primary:hover { box-shadow: 0 14px 44px rgba(26,86,219,0.55), inset 0 0 35px rgba(100,150,255,0.35); }
+
+    .g-btn-success {
+      background: linear-gradient(135deg, rgba(0,180,80,0.5) 0%, rgba(0,150,100,0.65) 100%);
+      box-shadow: 0 8px 32px rgba(0,200,100,0.35), inset 0 0 25px rgba(0,200,100,0.25), 0 0 40px rgba(0,200,100,0.25);
+      border-color: rgba(0,200,100,0.4);
+    }
+    .g-btn-success:hover { box-shadow: 0 14px 44px rgba(0,200,100,0.5), inset 0 0 35px rgba(0,220,120,0.35); }
+
+    .g-btn-warning {
+      background: linear-gradient(135deg, rgba(245,158,11,0.55) 0%, rgba(217,119,6,0.7) 100%);
+      box-shadow: 0 8px 32px rgba(245,158,11,0.35), inset 0 0 20px rgba(255,200,50,0.3), 0 0 40px rgba(245,158,11,0.25);
+      color: #1a0a00;
+    }
+    .g-btn-warning:hover { box-shadow: 0 14px 44px rgba(245,158,11,0.5), inset 0 0 30px rgba(255,200,50,0.4); }
+
+    .g-btn-danger {
+      background: linear-gradient(135deg, rgba(220,38,38,0.5) 0%, rgba(185,28,28,0.65) 100%);
+      box-shadow: 0 8px 32px rgba(220,38,38,0.35), inset 0 0 20px rgba(255,100,100,0.2), 0 0 35px rgba(220,38,38,0.25);
+    }
+    .g-btn-danger:hover { box-shadow: 0 14px 44px rgba(220,38,38,0.5); }
+
+    .g-btn-cyan {
+      background: linear-gradient(135deg, rgba(0,200,255,0.35) 0%, rgba(0,150,200,0.5) 100%);
+      box-shadow: 0 8px 32px rgba(0,200,255,0.3), inset 0 0 25px rgba(0,200,255,0.2), 0 0 40px rgba(0,200,255,0.3);
+      border-color: rgba(0,200,255,0.4);
+    }
+
+    .g-btn-silver {
+      background: linear-gradient(135deg, rgba(240,240,250,0.75) 0%, rgba(200,200,220,0.65) 100%);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15), inset 0 0 20px rgba(255,255,255,0.6);
+      border-color: rgba(255,255,255,0.6); color: #334;
+    }
+
+    .g-btn-ghost {
+      background: rgba(255,255,255,0.12);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1), inset 0 0 12px rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.3); color: #334;
+    }
+    .g-btn-ghost:hover { background: rgba(255,255,255,0.22); }
+
+    .g-btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 40px; }
+    .g-btn-lg { padding: 14px 28px; font-size: 15px; border-radius: 50px; }
+    .g-btn-block { width: 100%; }
+
+    /* Glass card */
+    .g-card {
+      background: var(--glass-bg, rgba(255,255,255,0.45));
+      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+      border-radius: 18px; border: 1.5px solid rgba(255,255,255,0.55);
+      box-shadow: 0 8px 32px rgba(100,100,200,0.1), inset 0 1px 0 rgba(255,255,255,0.7);
+      position: relative; overflow: hidden;
+    }
+    .g-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 40%;
+      background: linear-gradient(180deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.0) 100%);
+      border-radius: 18px 18px 0 0; pointer-events: none;
+    }
+
+    /* Glass input */
+    .g-input {
+      background: rgba(255,255,255,0.55) !important;
+      backdrop-filter: blur(12px); border-radius: 12px !important;
+      border: 1.5px solid rgba(200,200,240,0.5) !important;
+      box-shadow: inset 0 2px 8px rgba(100,100,200,0.08) !important;
+      font-family: 'DM Sans', sans-serif !important; font-size: 13px !important;
+      transition: all 0.2s; color: #1a1a2e !important;
+    }
+    .g-input:focus {
+      background: rgba(255,255,255,0.75) !important;
+      border-color: rgba(26,86,219,0.45) !important;
+      box-shadow: 0 0 0 3px rgba(26,86,219,0.12), inset 0 2px 8px rgba(100,100,200,0.08) !important;
+      outline: none !important;
+    }
+    .g-input::placeholder { color: #999 !important; }
+
+    /* Tabs */
+    .g-tabs { display: flex; gap: 4px; padding: 12px 16px 0; border-bottom: 1.5px solid rgba(200,200,240,0.4); }
+    .g-tab {
+      padding: 10px 20px; border-radius: 12px 12px 0 0; font-weight: 600; font-size: 13px;
+      cursor: pointer; border: none; background: rgba(255,255,255,0.2);
+      color: #556; transition: all 0.2s; display: flex; align-items: center; gap: 6px;
+    }
+    .g-tab.active {
+      background: rgba(255,255,255,0.65); color: #1a56db;
+      box-shadow: 0 -2px 12px rgba(26,86,219,0.12);
+      border-bottom: 2px solid #1a56db;
+    }
+
+    /* Stats cards */
+    .g-stat { text-align: center; padding: 16px; }
+    .g-stat-value { font-size: 1.4rem; font-weight: 700; }
+    .g-stat-label { font-size: 11px; color: #778; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+    /* Table */
+    .g-table { width: 100%; border-collapse: separate; border-spacing: 0 4px; }
+    .g-table thead th {
+      background: linear-gradient(135deg, rgba(25,25,50,0.7), rgba(50,20,100,0.6));
+      color: rgba(255,255,255,0.95); font-weight: 600; font-size: 12px;
+      padding: 10px 12px; letter-spacing: 0.3px;
+    }
+    .g-table thead th:first-child { border-radius: 10px 0 0 10px; }
+    .g-table thead th:last-child { border-radius: 0 10px 10px 0; }
+    .g-table tbody tr { background: rgba(255,255,255,0.45); transition: background 0.15s; }
+    .g-table tbody tr:hover { background: rgba(255,255,255,0.7); }
+    .g-table tbody td { padding: 9px 12px; font-size: 13px; color: #223; border-bottom: 1px solid rgba(200,200,240,0.25); }
+    .g-table tfoot td { padding: 10px 12px; font-size: 13px; font-weight: 700; background: rgba(26,86,219,0.08); }
+
+    /* Badge */
+    .g-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .g-badge-blue { background: rgba(26,86,219,0.15); color: #1a56db; border: 1px solid rgba(26,86,219,0.3); }
+    .g-badge-green { background: rgba(0,180,80,0.15); color: #006830; border: 1px solid rgba(0,180,80,0.3); }
+    .g-badge-yellow { background: rgba(245,158,11,0.15); color: #7a4800; border: 1px solid rgba(245,158,11,0.3); }
+    .g-badge-red { background: rgba(220,38,38,0.12); color: #991b1b; border: 1px solid rgba(220,38,38,0.25); }
+    .g-badge-gray { background: rgba(100,100,120,0.12); color: #445; border: 1px solid rgba(100,100,120,0.2); }
+
+    /* Toast */
+    .g-toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      min-width: 300px; max-width: 460px;
+      background: rgba(255,255,255,0.75); backdrop-filter: blur(24px);
+      border-radius: 16px; padding: 14px 20px;
+      border: 1.5px solid rgba(255,255,255,0.6);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      font-weight: 600; font-size: 14px;
+    }
+    .g-toast-success { border-left: 4px solid #00b450; color: #004d22; }
+    .g-toast-danger  { border-left: 4px solid #dc2626; color: #7f1d1d; }
+
+    /* Switch */
+    .g-switch { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+    .g-switch input { display: none; }
+    .g-switch-track {
+      width: 48px; height: 26px; border-radius: 13px;
+      background: rgba(200,200,220,0.5);
+      border: 1.5px solid rgba(200,200,220,0.6);
+      transition: all 0.3s; position: relative;
+    }
+    .g-switch-dot {
+      position: absolute; top: 2px; left: 2px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,240,255,0.85));
+      box-shadow: 0 2px 8px rgba(100,100,200,0.3);
+      transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .g-switch input:checked ~ .g-switch-track { background: rgba(26,86,219,0.45); border-color: rgba(26,86,219,0.4); }
+    .g-switch input:checked ~ .g-switch-track .g-switch-dot { transform: translateX(22px); }
+
+    /* Section header */
+    .g-section-title { font-size: 15px; font-weight: 700; color: #1a1a2e; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+
+    /* Phone gate icon ring */
+    .g-phone-ring {
+      width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 16px;
+      background: linear-gradient(135deg, rgba(26,86,219,0.12), rgba(100,50,200,0.18));
+      border: 2px solid rgba(26,86,219,0.25);
+      display: flex; align-items: center; justify-content: center; font-size: 34px;
+      box-shadow: 0 8px 32px rgba(26,86,219,0.15);
+    }
+
+    /* Customer list item */
+    .g-cust-item {
+      background: rgba(255,255,255,0.5); border-radius: 12px; border: 1.5px solid rgba(200,200,240,0.4);
+      padding: 12px 16px; cursor: pointer; transition: all 0.2s;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+    }
+    .g-cust-item:hover { background: rgba(255,255,255,0.8); border-color: rgba(26,86,219,0.3); transform: translateX(3px); }
+
+    /* Divider */
+    .g-divider { border: none; border-top: 1.5px solid rgba(200,200,240,0.4); margin: 16px 0; }
+
+    /* Header */
+    .g-page-header { padding: 20px 24px; }
+    .g-page-title { font-size: 22px; font-weight: 700; color: #1a1a2e; margin: 0; }
+    .g-page-sub { font-size: 12px; color: #889; margin-top: 2px; }
+
+    /* Alert bar */
+    .g-alert {
+      border-radius: 12px; padding: 10px 16px; font-size: 13px; font-weight: 500;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      border: 1.5px solid; backdrop-filter: blur(8px);
+    }
+    .g-alert-blue { background: rgba(26,86,219,0.08); border-color: rgba(26,86,219,0.25); color: #1a3080; }
+    .g-alert-warning { background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.35); color: #7a4000; }
+    .g-alert-info { background: rgba(0,200,255,0.08); border-color: rgba(0,200,255,0.3); color: #005f80; }
+    .g-alert-success { background: rgba(0,180,80,0.08); border-color: rgba(0,180,80,0.3); color: #004d22; }
+
+    /* Grand total row */
+    .g-total-row {
+      background: linear-gradient(135deg, rgba(26,86,219,0.18), rgba(100,50,200,0.15));
+      border-radius: 12px; padding: 14px 16px;
+      display: flex; justify-content: space-between; align-items: center;
+      border: 1.5px solid rgba(26,86,219,0.25); margin-top: 8px;
+    }
+
+    @media print { .no-print { display: none !important; } }
+  `;
 
   // ════════════════════════════════════════════════════════════════════════════
   // PREVIEW / PRINT VIEW
   // ════════════════════════════════════════════════════════════════════════════
   if (preview) {
     return (
-      <div className="container-fluid py-4">
-        <div className="d-flex gap-2 mb-4 no-print">
-          <button className="btn btn-secondary" onClick={() => setPreview(false)}>
-            <i className="bi bi-arrow-left me-1"></i>Back to Edit
+      <div className="si-wrap" style={{ padding: '24px' }}>
+        <style>{glassStyles}</style>
+        <div className="d-flex gap-2 mb-4 no-print" style={{ flexWrap: 'wrap' }}>
+          <button className="g-btn g-btn-dark" onClick={() => setPreview(false)}>
+            <i className="bi bi-arrow-left"></i>Back to Edit
           </button>
-          <button className="btn btn-success" onClick={generatePDF}>
-            <i className="bi bi-file-earmark-pdf me-1"></i>Download PDF
+          <button className="g-btn g-btn-success" onClick={generatePDF}>
+            <i className="bi bi-file-earmark-pdf"></i>Download PDF
           </button>
-          <button className="btn btn-primary" onClick={() => window.print()}>
-            <i className="bi bi-printer me-1"></i>Print
+          <button className="g-btn g-btn-primary" onClick={() => window.print()}>
+            <i className="bi bi-printer"></i>Print
           </button>
         </div>
 
@@ -406,314 +809,422 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
   // MAIN FORM
   // ════════════════════════════════════════════════════════════════════════════
   return (
-    <div className={`container-fluid py-4 theme-${currentTheme}`}>
+    <div className={`si-wrap theme-${currentTheme}`} style={{ padding: '20px 16px' }}>
+      <style>{glassStyles}</style>
 
       {/* ── Page Header ── */}
-      <div className="glass-card shadow-xl mb-4 p-4 fade-in-up">
-        <div className="d-flex align-items-center justify-content-between flex-wrap gap-3">
+      <div className="g-card mb-4 g-page-header">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2 className="fw-bold mb-1">
-              <i className="bi bi-receipt-cutoff text-primary me-2"></i>
+            <h2 className="g-page-title">
+              <i className="bi bi-receipt-cutoff" style={{ color: '#1a56db', marginRight: 8 }}></i>
               Sale Invoice Booking
             </h2>
-            <small className="text-muted">Create GST invoices, manage bills and track sales</small>
+            <div className="g-page-sub">Create GST invoices, manage bills and track sales</div>
           </div>
-          <div className="d-flex gap-2">
-            <button className="btn btn-outline-primary" onClick={() => onNavigateToInventory && onNavigateToInventory()}>
-              <i className="bi bi-boxes me-1"></i>Inventory
-            </button>
-          </div>
+          <button className="g-btn g-btn-primary" onClick={() => onNavigateToInventory && onNavigateToInventory()}>
+            <i className="bi bi-boxes"></i>Inventory
+          </button>
         </div>
       </div>
 
       {/* ── Stats Row ── */}
-      <div className="row g-3 mb-4">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
-          { label: 'Total Bills', value: bills.length, color: 'primary', icon: 'bi-receipt' },
-          { label: 'Total Revenue', value: '₹' + bills.reduce((s, b) => s + (b.totals?.total || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }), color: 'success', icon: 'bi-currency-rupee' },
-          { label: 'Total GST Collected', value: '₹' + bills.reduce((s, b) => s + (b.totals?.tax || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }), color: 'warning', icon: 'bi-percent' },
-          { label: 'Avg Bill Value', value: '₹' + (bills.length ? bills.reduce((s, b) => s + (b.totals?.total || 0), 0) / bills.length : 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }), color: 'info', icon: 'bi-graph-up' },
+          { label: 'Total Bills', value: bills.length, color: '#1a56db' },
+          { label: 'Total Revenue', value: '₹' + bills.reduce((s, b) => s + (b.totals?.total || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }), color: '#00b450' },
+          { label: 'GST Collected', value: '₹' + bills.reduce((s, b) => s + (b.totals?.tax || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }), color: '#f59e0b' },
+          { label: 'Avg Bill Value', value: '₹' + (bills.length ? bills.reduce((s, b) => s + (b.totals?.total || 0), 0) / bills.length : 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }), color: '#0099cc' },
         ].map((s, i) => (
-          <div key={i} className="col-6 col-md-3">
-            <div className="glass-card p-3 h-100">
-              <div className={`fw-bold fs-5 text-${s.color}`}>{s.value}</div>
-              <div className="text-muted small">{s.label}</div>
-            </div>
+          <div key={i} className="g-card g-stat">
+            <div className="g-stat-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="g-stat-label">{s.label}</div>
           </div>
         ))}
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="glass-card shadow-xl p-0 overflow-hidden">
-        <ul className="nav nav-tabs px-4 pt-3 border-0">
-          <li className="nav-item">
-            <button className={`nav-link ${activeTab === 'new' ? 'active' : ''}`} onClick={() => setActiveTab('new')}>
-              <i className="bi bi-file-earmark-plus me-1"></i>
-              {editingBillId ? 'Edit Invoice' : 'New Invoice'}
-            </button>
-          </li>
-          <li className="nav-item">
-            <button className={`nav-link ${activeTab === 'list' ? 'active' : ''}`} onClick={() => setActiveTab('list')}>
-              <i className="bi bi-list-ul me-1"></i>
-              Saved Bills <span className="badge bg-primary ms-1">{bills.length}</span>
-            </button>
-          </li>
-        </ul>
+      {/* ── Main Card with Tabs ── */}
+      <div className="g-card" style={{ overflow: 'hidden' }}>
 
-        <div className="p-4">
+        {/* Tabs */}
+        <div className="g-tabs">
+          <button className={`g-tab ${activeTab === 'new' ? 'active' : ''}`} onClick={() => setActiveTab('new')}>
+            <i className="bi bi-file-earmark-plus"></i>
+            {editingBillId ? 'Edit Invoice' : 'New Invoice'}
+          </button>
+          <button className={`g-tab ${activeTab === 'list' ? 'active' : ''}`} onClick={() => setActiveTab('list')}>
+            <i className="bi bi-list-ul"></i>
+            Saved Bills&nbsp;
+            <span className="g-badge g-badge-blue">{bills.length}</span>
+            {billsLoading && <span className="spinner-border spinner-border-sm ms-1" style={{ width: 12, height: 12, borderWidth: 2 }}></span>}
+          </button>
+        </div>
+
+        {/* Toast */}
+        {toast && (
+          <div className={`g-toast g-toast-${toast.type}`}>
+            <span>{toast.msg}</span>
+            <button onClick={() => setToast(null)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', lineHeight: 1, color: 'inherit', opacity: 0.7 }}>×</button>
+          </div>
+        )}
+
+        <div style={{ padding: '20px 20px 24px' }}>
 
           {/* ════════════ NEW INVOICE TAB ════════════ */}
           {activeTab === 'new' && (
             <div>
-              {/* Stock warning */}
-              {stockWarnings.length > 0 && (
-                <div className="alert alert-warning mb-4">
-                  <i className="bi bi-exclamation-triangle-fill me-2"></i>
-                  <strong>Low Stock:</strong> {stockWarnings.join(' | ')}
-                </div>
-              )}
 
-              {/* ── Section 1: GST Settings ── */}
-              <div className="glass-card p-4 mb-4">
-                <h5 className="fw-bold mb-3"><i className="bi bi-percent text-warning me-2"></i>GST Settings</h5>
-                <div className="row g-3 align-items-center">
-                  <div className="col-md-4">
-                    <label className="form-label fw-semibold">GST Mode</label>
-                    <div className="btn-group w-100" role="group">
-                      {[['exclusive', 'GST Exclusive'], ['inclusive', 'GST Inclusive'], ['none', 'No GST']].map(([val, label]) => (
-                        <button key={val} type="button"
-                          className={`btn btn-sm ${gstMode === val ? 'btn-warning' : 'btn-outline-secondary'}`}
-                          onClick={() => setGstMode(val)}>
-                          {label}
+              {/* ── Phone Gate ── */}
+              {phoneStep ? (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px 0' }}>
+                  <div className="g-card" style={{ maxWidth: 460, width: '100%', padding: '36px 32px', textAlign: 'center' }}>
+                    <div className="g-phone-ring">
+                      <i className="bi bi-telephone-fill" style={{ color: '#1a56db' }}></i>
+                    </div>
+                    <h4 style={{ fontWeight: 700, marginBottom: 6, color: '#1a1a2e' }}>Customer Phone Lookup</h4>
+                    <p style={{ color: '#889', fontSize: 13, marginBottom: 24 }}>
+                      Enter the customer's mobile number to find their details or create a new record.
+                    </p>
+
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#1a56db', fontSize: 16 }}>
+                          <i className="bi bi-phone"></i>
+                        </span>
+                        <input
+                          className="g-input"
+                          style={{ paddingLeft: 40, height: 48, width: '100%', fontSize: '16px !important', letterSpacing: 1 }}
+                          placeholder="e.g. 9876543210"
+                          value={phoneInput}
+                          autoFocus
+                          inputMode="tel"
+                          onChange={e => { setPhoneInput(e.target.value); setPhoneLookupStatus('idle'); setPhoneMatches([]); }}
+                          onKeyDown={e => e.key === 'Enter' && handlePhoneLookup()}
+                        />
+                      </div>
+                      <button className="g-btn g-btn-primary" style={{ borderRadius: 14, padding: '0 20px', height: 48, flexShrink: 0 }}
+                        onClick={handlePhoneLookup} disabled={!phoneInput.trim()}>
+                        <i className="bi bi-search"></i>Search
+                      </button>
+                    </div>
+
+                    {phoneLookupStatus === 'found' && phoneMatches.length > 0 && (
+                      <div style={{ textAlign: 'left', marginTop: 8 }}>
+                        <div className="g-alert g-alert-success" style={{ marginBottom: 12 }}>
+                          <span><i className="bi bi-check-circle-fill me-2"></i><strong>{phoneMatches.length}</strong> customer{phoneMatches.length > 1 ? 's' : ''} found</span>
+                        </div>
+                        {phoneMatches.map(c => (
+                          <div key={c.CustomerID} className="g-cust-item" onClick={() => handlePhoneCustomerSelect(c)}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e' }}>{c.CustomerName}</div>
+                              <div style={{ fontSize: 12, color: '#778', marginTop: 3 }}>
+                                <i className="bi bi-telephone me-1"></i>{c.Phone}
+                                {c.Address && <span style={{ marginLeft: 10 }}><i className="bi bi-geo-alt me-1"></i>{c.Address}</span>}
+                              </div>
+                            </div>
+                            <i className="bi bi-arrow-right-circle-fill" style={{ color: '#1a56db', fontSize: 20 }}></i>
+                          </div>
+                        ))}
+                        <button className="g-btn g-btn-ghost g-btn-block" style={{ marginTop: 4 }} onClick={handlePhoneNewCustomer}>
+                          <i className="bi bi-person-plus"></i>Not listed? Create new customer
                         </button>
-                      ))}
-                    </div>
-                    <small className="text-muted d-block mt-1">
-                      {gstMode === 'exclusive' ? 'GST added on top of rate' : gstMode === 'inclusive' ? 'GST already included in rate' : 'Bill without GST'}
-                    </small>
-                  </div>
-                  {gstMode !== 'none' && (
-                    <div className="col-md-3">
-                      <label className="form-label fw-semibold">Transaction Type</label>
-                      <div className="form-check form-switch mt-1">
-                        <input className="form-check-input" type="checkbox" id="interState" checked={isInterState} onChange={e => setIsInterState(e.target.checked)} />
-                        <label className="form-check-label" htmlFor="interState">
-                          {isInterState ? <span className="text-danger fw-semibold">Inter-State (IGST)</span> : <span className="text-success fw-semibold">Intra-State (CGST + SGST)</span>}
-                        </label>
                       </div>
-                    </div>
-                  )}
-                  <div className="col-md-2">
-                    <label className="form-label fw-semibold">Invoice No</label>
-                    <input className="form-control" value={billNo} onChange={e => setBillNo(e.target.value)} />
-                  </div>
-                  <div className="col-md-2">
-                    <label className="form-label fw-semibold">Invoice Date</label>
-                    <input type="date" className="form-control" value={billDate} onChange={e => setBillDate(e.target.value)} />
-                  </div>
-                  <div className="col-md-1">
-                    <label className="form-label fw-semibold">Due Date</label>
-                    <input type="date" className="form-control" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+                    )}
+
+                    {phoneLookupStatus === 'new' && (
+                      <div className="g-alert g-alert-info" style={{ marginTop: 12 }}>
+                        <span><i className="bi bi-info-circle-fill me-2"></i>No customer found for <strong>{phoneInput}</strong>. A new customer will be created.</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              ) : (
+              <div>
+                {/* Customer chip */}
+                <div className="g-alert g-alert-blue" style={{ marginBottom: 16 }}>
+                  <span>
+                    <i className="bi bi-telephone-fill me-2"></i>
+                    <strong>Customer:</strong>{' '}
+                    {customer.name ? <><strong>{customer.name}</strong>&nbsp;·&nbsp;</> : ''}
+                    <span style={{ opacity: 0.7 }}>{customer.phone}</span>
+                  </span>
+                  <button className="g-btn g-btn-ghost g-btn-sm" onClick={() => resetForm()}>
+                    <i className="bi bi-arrow-left"></i>Change
+                  </button>
+                </div>
 
-              {/* ── Section 2: Company + Customer ── */}
-              <div className="row g-4 mb-4">
+                {stockWarnings.length > 0 && (
+                  <div className="g-alert g-alert-warning" style={{ marginBottom: 16 }}>
+                    <span><i className="bi bi-exclamation-triangle-fill me-2"></i><strong>Low Stock:</strong> {stockWarnings.join(' | ')}</span>
+                  </div>
+                )}
 
-                {/* Company */}
-                <div className="col-lg-6">
-                  <div className="glass-card p-4 h-100">
-                    <h5 className="fw-bold mb-3"><i className="bi bi-building text-primary me-2"></i>Your Company</h5>
-
-                    {/* Logo */}
-                    <div className="mb-3 d-flex align-items-center gap-3">
-                      {company.logo
-                        ? <img src={company.logo} alt="logo" style={{ maxHeight: 50, borderRadius: 6 }} />
-                        : <div className="text-muted border rounded p-2 text-center" style={{ width: 80, fontSize: 11 }}>No Logo</div>
-                      }
-                      <div>
-                        <label className="btn btn-outline-secondary btn-sm">
-                          <i className="bi bi-upload me-1"></i>Upload Logo
-                          <input type="file" accept="image/*" className="d-none" onChange={handleLogo} />
-                        </label>
-                        {company.logo && <button className="btn btn-outline-danger btn-sm ms-2" onClick={() => setCompany(p => ({ ...p, logo: null }))}>Remove</button>}
+                {/* ── Section 1: GST Settings ── */}
+                <div className="g-card" style={{ padding: '20px 20px 16px', marginBottom: 16 }}>
+                  <div className="g-section-title"><i className="bi bi-percent" style={{ color: '#f59e0b' }}></i>GST Settings</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+                    <div style={{ minWidth: 220 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: '#556', display: 'block', marginBottom: 6 }}>GST Mode</label>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {[['exclusive', 'Exclusive'], ['inclusive', 'Inclusive'], ['none', 'No GST']].map(([val, label]) => (
+                          <button key={val} type="button"
+                            className={`g-btn g-btn-sm ${gstMode === val ? 'g-btn-warning' : 'g-btn-ghost'}`}
+                            style={{ borderRadius: 10, flex: 1, padding: '6px 8px' }}
+                            onClick={() => setGstMode(val)}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#889', marginTop: 5 }}>
+                        {gstMode === 'exclusive' ? 'GST added on top of rate' : gstMode === 'inclusive' ? 'GST included in rate' : 'Bill without GST'}
                       </div>
                     </div>
 
-                    <div className="mb-2">
-                      <label className="form-label fw-semibold small">Select from Master</label>
-                      <select className="form-select form-select-sm" value={company.name} onChange={e => handleCompanySelect(e.target.value)}>
+                    {gstMode !== 'none' && (
+                      <div style={{ minWidth: 180 }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: '#556', display: 'block', marginBottom: 8 }}>Transaction Type</label>
+                        <label className="g-switch">
+                          <input type="checkbox" checked={isInterState} onChange={e => setIsInterState(e.target.checked)} />
+                          <div className="g-switch-track"><div className="g-switch-dot"></div></div>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: isInterState ? '#dc2626' : '#00843d' }}>
+                            {isInterState ? 'Inter-State (IGST)' : 'Intra-State (CGST+SGST)'}
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: '#556', display: 'block', marginBottom: 4 }}>Invoice No</label>
+                      <input className="g-input" style={{ width: 140 }} value={billNo} onChange={e => setBillNo(e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: '#556', display: 'block', marginBottom: 4 }}>Invoice Date</label>
+                      <input type="date" className="g-input" style={{ width: 150 }} value={billDate} onChange={e => setBillDate(e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: '#556', display: 'block', marginBottom: 4 }}>Due Date</label>
+                      <input type="date" className="g-input" style={{ width: 150 }} value={dueDate} onChange={e => setDueDate(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Section 2: Company + Customer ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginBottom: 16 }}>
+
+                  {/* Company */}
+                  <div className="g-card" style={{ padding: '20px' }}>
+                    <div className="g-section-title"><i className="bi bi-building" style={{ color: '#1a56db' }}></i>Your Company</div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                      {company.logo
+                        ? <img src={company.logo} alt="logo" style={{ maxHeight: 44, borderRadius: 8, border: '1.5px solid rgba(200,200,240,0.4)' }} />
+                        : <div style={{ width: 72, height: 44, borderRadius: 8, background: 'rgba(200,200,240,0.2)', border: '1.5px dashed rgba(200,200,240,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#889' }}>No Logo</div>
+                      }
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <label className="g-btn g-btn-ghost g-btn-sm" style={{ cursor: 'pointer' }}>
+                          <i className="bi bi-upload"></i>Upload
+                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogo} />
+                        </label>
+                        {company.logo && <button className="g-btn g-btn-danger g-btn-sm" onClick={() => setCompany(p => ({ ...p, logo: null }))}>Remove</button>}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 4 }}>Select from Master</label>
+                      <select className="g-input" style={{ width: '100%' }} value={company.name} onChange={e => handleCompanySelect(e.target.value)}>
                         <option value="">-- Select Company --</option>
                         {companyMaster.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                       </select>
                     </div>
 
-                    <div className="row g-2">
-                      <div className="col-12">
-                        <label className="form-label fw-semibold small">Company Name *</label>
-                        <input className="form-control form-control-sm" placeholder="Company Name" value={company.name} onChange={e => setCompany(p => ({ ...p, name: e.target.value }))} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Company Name *</label>
+                        <input className="g-input" style={{ width: '100%' }} placeholder="Company Name" value={company.name} onChange={e => setCompany(p => ({ ...p, name: e.target.value }))} />
                       </div>
-                      <div className="col-12">
-                        <label className="form-label fw-semibold small">Address</label>
-                        <textarea className="form-control form-control-sm" rows="2" placeholder="Street / Area" value={company.address} onChange={e => setCompany(p => ({ ...p, address: e.target.value }))} />
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Address</label>
+                        <textarea className="g-input" rows="2" style={{ width: '100%', resize: 'vertical' }} placeholder="Street / Area" value={company.address} onChange={e => setCompany(p => ({ ...p, address: e.target.value }))} />
                       </div>
-                      <div className="col-6">
-                        <input className="form-control form-control-sm" placeholder="City" value={company.city} onChange={e => setCompany(p => ({ ...p, city: e.target.value }))} />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 6 }}>
+                        <input className="g-input" placeholder="City" value={company.city} onChange={e => setCompany(p => ({ ...p, city: e.target.value }))} />
+                        <input className="g-input" placeholder="State" value={company.state} onChange={e => setCompany(p => ({ ...p, state: e.target.value }))} />
+                        <input className="g-input" placeholder="PIN" value={company.pincode} onChange={e => setCompany(p => ({ ...p, pincode: e.target.value }))} />
                       </div>
-                      <div className="col-4">
-                        <input className="form-control form-control-sm" placeholder="State" value={company.state} onChange={e => setCompany(p => ({ ...p, state: e.target.value }))} />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>GSTIN</label>
+                          <input className="g-input" placeholder="22AAAAA0000A1Z5" value={company.gstin} onChange={e => setCompany(p => ({ ...p, gstin: e.target.value.toUpperCase() }))} style={{ width: '100%' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Phone</label>
+                          <input className="g-input" placeholder="Phone" value={company.phone} onChange={e => setCompany(p => ({ ...p, phone: e.target.value }))} style={{ width: '100%' }} />
+                        </div>
                       </div>
-                      <div className="col-2">
-                        <input className="form-control form-control-sm" placeholder="PIN" value={company.pincode} onChange={e => setCompany(p => ({ ...p, pincode: e.target.value }))} />
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Email</label>
+                        <input className="g-input" type="email" placeholder="Email" value={company.email} onChange={e => setCompany(p => ({ ...p, email: e.target.value }))} style={{ width: '100%' }} />
                       </div>
-                      <div className="col-6">
-                        <label className="form-label fw-semibold small">GSTIN</label>
-                        <input className="form-control form-control-sm" placeholder="22AAAAA0000A1Z5" value={company.gstin} onChange={e => setCompany(p => ({ ...p, gstin: e.target.value.toUpperCase() }))} />
+                    </div>
+                  </div>
+
+                  {/* Customer */}
+                  <div className="g-card" style={{ padding: '20px' }}>
+                    <div className="g-section-title"><i className="bi bi-person-lines-fill" style={{ color: '#00b450' }}></i>Bill To (Customer)</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ position: 'relative' }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Customer Name *</label>
+                        <input
+                          className="g-input" style={{ width: '100%' }}
+                          placeholder="Customer / Party Name"
+                          value={customer.name} autoComplete="off"
+                          onChange={e => { setCustomer(p => ({ ...p, name: e.target.value })); setShowCustomerDropdown(true); }}
+                          onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
+                          onFocus={() => customer.name && setShowCustomerDropdown(true)}
+                        />
+                        {showCustomerDropdown && filteredCustomers.length > 0 && (
+                          <ul style={{
+                            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
+                            maxHeight: 200, overflowY: 'auto',
+                            background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(16px)',
+                            borderRadius: '0 0 12px 12px', border: '1.5px solid rgba(200,200,240,0.5)',
+                            boxShadow: '0 8px 24px rgba(100,100,200,0.15)', margin: 0, padding: 0, listStyle: 'none'
+                          }}>
+                            {filteredCustomers.map(c => (
+                              <li key={c.CustomerID} style={{ padding: '8px 14px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid rgba(200,200,240,0.3)', transition: 'background 0.15s' }}
+                                onMouseDown={() => handleCustomerSelect(c)}
+                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(26,86,219,0.06)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                <strong>{c.CustomerName}</strong>
+                                {c.Phone && <span style={{ color: '#889', marginLeft: 8, fontSize: 12 }}>· {c.Phone}</span>}
+                                {c.Address && <span style={{ color: '#889', marginLeft: 8, fontSize: 12 }}>· {c.Address}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
-                      <div className="col-6">
-                        <label className="form-label fw-semibold small">Phone</label>
-                        <input className="form-control form-control-sm" placeholder="Phone" value={company.phone} onChange={e => setCompany(p => ({ ...p, phone: e.target.value }))} />
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Address</label>
+                        <textarea className="g-input" rows="2" style={{ width: '100%', resize: 'vertical' }} placeholder="Street / Area" value={customer.address} onChange={e => setCustomer(p => ({ ...p, address: e.target.value }))} />
                       </div>
-                      <div className="col-12">
-                        <label className="form-label fw-semibold small">Email</label>
-                        <input className="form-control form-control-sm" type="email" placeholder="Email" value={company.email} onChange={e => setCompany(p => ({ ...p, email: e.target.value }))} />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 6 }}>
+                        <input className="g-input" placeholder="City" value={customer.city} onChange={e => setCustomer(p => ({ ...p, city: e.target.value }))} />
+                        <input className="g-input" placeholder="State" value={customer.state} onChange={e => setCustomer(p => ({ ...p, state: e.target.value }))} />
+                        <input className="g-input" placeholder="PIN" value={customer.pincode} onChange={e => setCustomer(p => ({ ...p, pincode: e.target.value }))} />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Customer GSTIN</label>
+                          <input className="g-input" placeholder="GSTIN" value={customer.gstin} onChange={e => setCustomer(p => ({ ...p, gstin: e.target.value.toUpperCase() }))} style={{ width: '100%' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Phone</label>
+                          <input className="g-input" placeholder="Phone" value={customer.phone} onChange={e => setCustomer(p => ({ ...p, phone: e.target.value }))} style={{ width: '100%' }} />
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Notes / Terms</label>
+                        <textarea className="g-input" rows="3" style={{ width: '100%', resize: 'vertical' }} placeholder="Payment terms, delivery notes..." value={notes} onChange={e => setNotes(e.target.value)} />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Customer */}
-                <div className="col-lg-6">
-                  <div className="glass-card p-4 h-100">
-                    <h5 className="fw-bold mb-3"><i className="bi bi-person-lines-fill text-success me-2"></i>Bill To (Customer)</h5>
-                    <div className="row g-2">
-                      <div className="col-12">
-                        <label className="form-label fw-semibold small">Customer Name *</label>
-                        <input className="form-control form-control-sm" placeholder="Customer / Party Name" value={customer.name} onChange={e => setCustomer(p => ({ ...p, name: e.target.value }))} />
-                      </div>
-                      <div className="col-12">
-                        <label className="form-label fw-semibold small">Address</label>
-                        <textarea className="form-control form-control-sm" rows="2" placeholder="Street / Area" value={customer.address} onChange={e => setCustomer(p => ({ ...p, address: e.target.value }))} />
-                      </div>
-                      <div className="col-6">
-                        <input className="form-control form-control-sm" placeholder="City" value={customer.city} onChange={e => setCustomer(p => ({ ...p, city: e.target.value }))} />
-                      </div>
-                      <div className="col-4">
-                        <input className="form-control form-control-sm" placeholder="State" value={customer.state} onChange={e => setCustomer(p => ({ ...p, state: e.target.value }))} />
-                      </div>
-                      <div className="col-2">
-                        <input className="form-control form-control-sm" placeholder="PIN" value={customer.pincode} onChange={e => setCustomer(p => ({ ...p, pincode: e.target.value }))} />
-                      </div>
-                      <div className="col-6">
-                        <label className="form-label fw-semibold small">Customer GSTIN</label>
-                        <input className="form-control form-control-sm" placeholder="GSTIN (if registered)" value={customer.gstin} onChange={e => setCustomer(p => ({ ...p, gstin: e.target.value.toUpperCase() }))} />
-                      </div>
-                      <div className="col-6">
-                        <label className="form-label fw-semibold small">Phone</label>
-                        <input className="form-control form-control-sm" placeholder="Phone" value={customer.phone} onChange={e => setCustomer(p => ({ ...p, phone: e.target.value }))} />
-                      </div>
-                      <div className="col-12 mt-2">
-                        <label className="form-label fw-semibold small">Notes / Terms</label>
-                        <textarea className="form-control form-control-sm" rows="3" placeholder="Payment terms, delivery notes..." value={notes} onChange={e => setNotes(e.target.value)} />
-                      </div>
-                    </div>
+                {/* ── Section 3: Items Table ── */}
+                <div className="g-card" style={{ padding: '20px', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                    <div className="g-section-title" style={{ marginBottom: 0 }}><i className="bi bi-cart3" style={{ color: '#0099cc' }}></i>Items</div>
+                    <button className="g-btn g-btn-primary g-btn-sm" onClick={addItem}>
+                      <i className="bi bi-plus-circle"></i>Add Item
+                    </button>
                   </div>
-                </div>
-              </div>
 
-              {/* ── Section 3: Items Table ── */}
-              <div className="glass-card p-4 mb-4">
-                <div className="d-flex justify-content-between align-items-center mb-3">
-                  <h5 className="fw-bold mb-0"><i className="bi bi-cart3 text-info me-2"></i>Items</h5>
-                  <button className="btn btn-primary btn-sm" onClick={addItem}>
-                    <i className="bi bi-plus-circle me-1"></i>Add Item
-                  </button>
-                </div>
-
-                <div className="table-responsive">
-                  <table className="table table-bordered table-hover align-middle mb-0">
-                    <thead className="table-dark">
-                      <tr>
-                        <th style={{ minWidth: 160 }}>Item</th>
-                        <th style={{ minWidth: 80 }}>HSN</th>
-                        <th style={{ minWidth: 60 }}>Qty</th>
-                        <th style={{ minWidth: 60 }}>Unit</th>
-                        <th style={{ minWidth: 90 }}>Rate (₹)</th>
-                        <th style={{ minWidth: 70 }}>Disc%</th>
-                        {gstMode !== 'none' && <th style={{ minWidth: 80 }}>GST%</th>}
-                        <th style={{ minWidth: 70 }}>Stock</th>
-                        {gstMode !== 'none' && <th style={{ minWidth: 80 }}>Tax (₹)</th>}
-                        <th style={{ minWidth: 90 }}>Total (₹)</th>
-                        <th style={{ width: 40 }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map(item => {
-                        const c = calcItem(item);
-                        const master = itemMaster.find(m => m.name === item.name);
-                        const stock = master ? (master.stock || 0) : null;
-                        const overStock = stock !== null && item.qty > stock;
-                        return (
-                          <tr key={item.id} className={overStock ? 'table-warning' : ''}>
-                            <td>
-                              <select className="form-select form-select-sm" value={item.name} onChange={e => handleItemSelect(item.id, e.target.value)}>
-                                <option value="">Select item...</option>
-                                {itemMaster.map(m => (
-                                  <option key={m.id} value={m.name}>{m.name} (Stk:{m.stock || 0})</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td><input className="form-control form-control-sm" placeholder="HSN" value={item.hsn} onChange={e => updateItem(item.id, 'hsn', e.target.value)} /></td>
-                            <td><input className="form-control form-control-sm text-end" type="number" min="0" value={item.qty} onChange={e => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)} /></td>
-                            <td>
-                              <select className="form-select form-select-sm" value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)}>
-                                {['Nos', 'Kg', 'Gm', 'Ltr', 'Mtr', 'Box', 'Pcs', 'Set', 'Pair'].map(u => <option key={u}>{u}</option>)}
-                              </select>
-                            </td>
-                            <td><input className="form-control form-control-sm text-end" type="number" min="0" step="0.01" value={item.rate} onChange={e => updateItem(item.id, 'rate', parseFloat(e.target.value) || 0)} /></td>
-                            <td><input className="form-control form-control-sm text-end" type="number" min="0" max="100" step="0.01" value={item.disc} onChange={e => updateItem(item.id, 'disc', parseFloat(e.target.value) || 0)} /></td>
-                            {gstMode !== 'none' && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="g-table">
+                      <thead>
+                        <tr>
+                          <th style={{ minWidth: 160 }}>Item</th>
+                          <th style={{ minWidth: 80 }}>HSN</th>
+                          <th style={{ minWidth: 60 }}>Qty</th>
+                          <th style={{ minWidth: 60 }}>Unit</th>
+                          <th style={{ minWidth: 90 }}>Rate (₹)</th>
+                          <th style={{ minWidth: 70 }}>Disc%</th>
+                          {gstMode !== 'none' && <th style={{ minWidth: 80 }}>GST%</th>}
+                          <th style={{ minWidth: 70 }}>Stock</th>
+                          {gstMode !== 'none' && <th style={{ minWidth: 80 }}>Tax (₹)</th>}
+                          <th style={{ minWidth: 90 }}>Total (₹)</th>
+                          <th style={{ width: 40 }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map(item => {
+                          const c = calcItem(item);
+                          const master = itemMaster.find(m => m.name === item.name);
+                          const stock = master ? (master.stock || 0) : null;
+                          const overStock = stock !== null && item.qty > stock;
+                          return (
+                            <tr key={item.id} style={{ background: overStock ? 'rgba(245,158,11,0.12)' : undefined }}>
                               <td>
-                                <select className="form-select form-select-sm" value={item.gstPercent} onChange={e => updateItem(item.id, 'gstPercent', parseFloat(e.target.value))}>
-                                  {GST_SLABS.map(s => <option key={s} value={s}>{s}%</option>)}
+                                <select className="g-input" style={{ width: '100%' }} value={item.name} onChange={e => handleItemSelect(item.id, e.target.value)}>
+                                  <option value="">Select item...</option>
+                                  {itemMaster.map(m => (
+                                    <option key={m.id} value={m.name}>{m.name} (Stk:{m.stock || 0})</option>
+                                  ))}
                                 </select>
                               </td>
-                            )}
-                            <td className="text-center">
-                              {stock !== null
-                                ? <span className={`badge ${stock === 0 ? 'bg-danger' : stock < 10 ? 'bg-warning text-dark' : 'bg-success'}`}>{stock}</span>
-                                : <span className="text-muted">—</span>}
-                            </td>
-                            {gstMode !== 'none' && <td className="text-end text-muted small">₹{c.taxAmt.toFixed(2)}</td>}
-                            <td className="text-end fw-bold text-success">₹{c.total.toFixed(2)}</td>
-                            <td>
-                              <button className="btn btn-outline-danger btn-sm" onClick={() => removeItem(item.id)}>
-                                <i className="bi bi-trash"></i>
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              <td><input className="g-input" style={{ width: '100%' }} placeholder="HSN" value={item.hsn} onChange={e => updateItem(item.id, 'hsn', e.target.value)} /></td>
+                              <td><input className="g-input" style={{ width: '100%', textAlign: 'right' }} type="number" min="0" value={item.qty} onChange={e => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)} /></td>
+                              <td>
+                                <select className="g-input" style={{ width: '100%' }} value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)}>
+                                  {['Nos', 'Kg', 'Gm', 'Ltr', 'Mtr', 'Box', 'Pcs', 'Set', 'Pair'].map(u => <option key={u}>{u}</option>)}
+                                </select>
+                              </td>
+                              <td><input className="g-input" style={{ width: '100%', textAlign: 'right' }} type="number" min="0" step="0.01" value={item.rate} onChange={e => updateItem(item.id, 'rate', parseFloat(e.target.value) || 0)} /></td>
+                              <td><input className="g-input" style={{ width: '100%', textAlign: 'right' }} type="number" min="0" max="100" step="0.01" value={item.disc} onChange={e => updateItem(item.id, 'disc', parseFloat(e.target.value) || 0)} /></td>
+                              {gstMode !== 'none' && (
+                                <td>
+                                  <select className="g-input" style={{ width: '100%' }} value={item.gstPercent} onChange={e => updateItem(item.id, 'gstPercent', parseFloat(e.target.value))}>
+                                    {GST_SLABS.map(s => <option key={s} value={s}>{s}%</option>)}
+                                  </select>
+                                </td>
+                              )}
+                              <td style={{ textAlign: 'center' }}>
+                                {stock !== null
+                                  ? <span className={`g-badge ${stock === 0 ? 'g-badge-red' : stock < 10 ? 'g-badge-yellow' : 'g-badge-green'}`}>{stock}</span>
+                                  : <span style={{ color: '#aaa' }}>—</span>}
+                              </td>
+                              {gstMode !== 'none' && <td style={{ textAlign: 'right', color: '#778', fontSize: 12 }}>₹{c.taxAmt.toFixed(2)}</td>}
+                              <td style={{ textAlign: 'right', fontWeight: 700, color: '#00843d' }}>₹{c.total.toFixed(2)}</td>
+                              <td>
+                                <button className="g-btn g-btn-danger g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} onClick={() => removeItem(item.id)}>
+                                  <i className="bi bi-trash"></i>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
 
-              {/* ── Section 4: Summary + Actions ── */}
-              <div className="row g-4">
-                <div className="col-md-7">
-                  {/* GST Breakdown */}
+                {/* ── Section 4: Summary + Actions ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+
+                  {/* GST Breakup */}
                   {gstMode !== 'none' && (
-                    <div className="glass-card p-4 h-100">
-                      <h6 className="fw-bold mb-3"><i className="bi bi-table text-warning me-2"></i>GST Breakup</h6>
-                      <table className="table table-sm mb-0">
-                        <thead className="table-light">
-                          <tr>
-                            <th>GST%</th>
-                            <th className="text-end">Taxable</th>
-                            {isInterState ? <th className="text-end">IGST</th> : <><th className="text-end">CGST</th><th className="text-end">SGST</th></>}
-                            <th className="text-end">Total Tax</th>
+                    <div className="g-card" style={{ padding: '18px' }}>
+                      <div className="g-section-title"><i className="bi bi-table" style={{ color: '#f59e0b' }}></i>GST Breakup</div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1.5px solid rgba(200,200,240,0.4)' }}>
+                            <th style={{ padding: '6px 8px', fontWeight: 600, color: '#556', textAlign: 'left' }}>GST%</th>
+                            <th style={{ padding: '6px 8px', fontWeight: 600, color: '#556', textAlign: 'right' }}>Taxable</th>
+                            {isInterState ? <th style={{ padding: '6px 8px', fontWeight: 600, color: '#556', textAlign: 'right' }}>IGST</th> : <>
+                              <th style={{ padding: '6px 8px', fontWeight: 600, color: '#556', textAlign: 'right' }}>CGST</th>
+                              <th style={{ padding: '6px 8px', fontWeight: 600, color: '#556', textAlign: 'right' }}>SGST</th>
+                            </>}
+                            <th style={{ padding: '6px 8px', fontWeight: 600, color: '#556', textAlign: 'right' }}>Tax</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -725,14 +1236,14 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
                             const slabSgst = slabItems.reduce((s, i) => s + calcItem(i).sgst, 0);
                             if (slabTaxable === 0) return null;
                             return (
-                              <tr key={slab}>
-                                <td><span className="badge bg-secondary">{slab}%</span></td>
-                                <td className="text-end">₹{slabTaxable.toFixed(2)}</td>
-                                {isInterState ? <td className="text-end">₹{slabTax.toFixed(2)}</td> : <>
-                                  <td className="text-end">₹{slabCgst.toFixed(2)}</td>
-                                  <td className="text-end">₹{slabSgst.toFixed(2)}</td>
+                              <tr key={slab} style={{ borderBottom: '1px solid rgba(200,200,240,0.25)' }}>
+                                <td style={{ padding: '7px 8px' }}><span className="g-badge g-badge-gray">{slab}%</span></td>
+                                <td style={{ padding: '7px 8px', textAlign: 'right' }}>₹{slabTaxable.toFixed(2)}</td>
+                                {isInterState ? <td style={{ padding: '7px 8px', textAlign: 'right' }}>₹{slabTax.toFixed(2)}</td> : <>
+                                  <td style={{ padding: '7px 8px', textAlign: 'right' }}>₹{slabCgst.toFixed(2)}</td>
+                                  <td style={{ padding: '7px 8px', textAlign: 'right' }}>₹{slabSgst.toFixed(2)}</td>
                                 </>}
-                                <td className="text-end fw-bold">₹{slabTax.toFixed(2)}</td>
+                                <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 700 }}>₹{slabTax.toFixed(2)}</td>
                               </tr>
                             );
                           })}
@@ -740,135 +1251,160 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
                       </table>
                     </div>
                   )}
-                </div>
 
-                <div className="col-md-5">
-                  <div className="glass-card p-4">
-                    <table className="table table-sm mb-3">
-                      <tbody>
-                        <tr><td className="text-muted">Gross Amount</td><td className="text-end">₹{totals.gross.toFixed(2)}</td></tr>
-                        {totals.disc > 0 && <tr><td className="text-danger">Discount</td><td className="text-end text-danger">- ₹{totals.disc.toFixed(2)}</td></tr>}
-                        <tr><td className="text-muted">Taxable Amount</td><td className="text-end">₹{totals.taxable.toFixed(2)}</td></tr>
-                        {gstMode !== 'none' && isInterState && <tr><td className="text-muted">IGST</td><td className="text-end">₹{totals.igst.toFixed(2)}</td></tr>}
-                        {gstMode !== 'none' && !isInterState && <>
-                          <tr><td className="text-muted">CGST</td><td className="text-end">₹{totals.cgst.toFixed(2)}</td></tr>
-                          <tr><td className="text-muted">SGST</td><td className="text-end">₹{totals.sgst.toFixed(2)}</td></tr>
-                        </>}
-                        <tr className="table-success">
-                          <td className="fw-bold fs-5">Grand Total</td>
-                          <td className="text-end fw-bold fs-5 text-success">₹{totals.total.toFixed(2)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  {/* Totals + Actions */}
+                  <div className="g-card" style={{ padding: '18px' }}>
+                    <div style={{ marginBottom: 12 }}>
+                      {[
+                        ['Gross Amount', totals.gross, '#556'],
+                        ...(totals.disc > 0 ? [['Discount', -totals.disc, '#dc2626']] : []),
+                        ['Taxable Amount', totals.taxable, '#556'],
+                        ...(gstMode !== 'none' && isInterState ? [['IGST', totals.igst, '#778']] : []),
+                        ...(gstMode !== 'none' && !isInterState ? [['CGST', totals.cgst, '#778'], ['SGST', totals.sgst, '#778']] : []),
+                      ].map(([label, val, color]) => (
+                        <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13, borderBottom: '1px solid rgba(200,200,240,0.2)' }}>
+                          <span style={{ color }}>{label}</span>
+                          <span style={{ color, fontWeight: 500 }}>{val < 0 ? '- ' : ''}₹{Math.abs(val).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="g-total-row">
+                      <span style={{ fontWeight: 700, fontSize: 15 }}>Grand Total</span>
+                      <span style={{ fontWeight: 800, fontSize: 17, color: '#1a56db' }}>₹{totals.total.toFixed(2)}</span>
+                    </div>
 
-                    <div className="d-flex flex-column gap-2">
-                      <div className="d-flex gap-2">
-                        <button className="btn btn-outline-secondary flex-fill" onClick={resetForm}>
-                          <i className="bi bi-arrow-clockwise me-1"></i>New Bill
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="g-btn g-btn-ghost" style={{ flex: 1, borderRadius: 14 }} onClick={resetForm}>
+                          <i className="bi bi-arrow-clockwise"></i>New Bill
                         </button>
-                        <button className="btn btn-primary flex-fill" onClick={() => setPreview(true)}>
-                          <i className="bi bi-eye me-1"></i>Preview
+                        <button className="g-btn g-btn-warning" style={{ flex: 1, borderRadius: 14 }} onClick={() => setPreview(true)}>
+                          <i className="bi bi-eye"></i>Preview
                         </button>
                       </div>
-                      <button className="btn btn-success w-100 btn-lg" onClick={saveBill}>
-                        <i className="bi bi-save me-2"></i>{editingBillId ? 'Update Bill' : 'Save Bill'}
+                      <button className="g-btn g-btn-success g-btn-lg g-btn-block" style={{ borderRadius: 14 }} onClick={saveBill} disabled={saving}>
+                        {saving
+                          ? <><span className="spinner-border spinner-border-sm" style={{ width: 16, height: 16, borderWidth: 2 }}></span>&nbsp;Saving...</>
+                          : <><i className="bi bi-save"></i>{editingBillId ? 'Update Bill' : 'Save Bill'}</>
+                        }
                       </button>
-                      {totals.total > 0 && (
-                        <button className="btn btn-info w-100 btn-lg mt-2" onClick={() => {
+                      <button
+                        className="g-btn g-btn-cyan g-btn-lg g-btn-block"
+                        style={{ borderRadius: 14, opacity: isBillSaved ? 1 : 0.5, cursor: isBillSaved ? 'pointer' : 'not-allowed' }}
+                        disabled={!isBillSaved}
+                        title={!isBillSaved ? 'Save the bill first to enable payment' : ''}
+                        onClick={() => {
+                          if (!isBillSaved) return;
                           const paid = receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
-                          const balance = totals.total - paid;
-                          selectInvoiceForPayment({
-                            total: totals.total,
-                            customer: customer.name,
-                            billNo: billNo,
-                            companyName: company.name || '',
-                            balance: Math.max(0, balance)
-                          });
-                        }}>
-                          <i className="bi bi-receipt me-2"></i>Receipt Payment (Balance: ₹{Math.max(0, totals.total - receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0)).toLocaleString()})
-                        </button>
-                      )}
+                          selectInvoiceForPayment({ total: totals.total, customer: customer.name, billNo, companyName: company.name || '', balance: Math.max(0, totals.total - paid) });
+                        }}
+                      >
+                        <i className={`bi ${isBillSaved ? 'bi-receipt' : 'bi-lock'}`}></i>
+                        {isBillSaved
+                          ? `Receipt Payment (₹${Math.max(0, totals.total - receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0)).toLocaleString()})`
+                          : 'Receipt Payment (Save First)'
+                        }
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
+              )} {/* end phoneStep else */}
             </div>
           )}
 
           {/* ════════════ SAVED BILLS TAB ════════════ */}
           {activeTab === 'list' && (
             <div>
-              <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
-                <h4 className="fw-bold mb-0">Saved Bills ({bills.length})</h4>
-                <div className="input-group" style={{ maxWidth: 300 }}>
-                  <span className="input-group-text"><i className="bi bi-search"></i></span>
-                  <input className="form-control" placeholder="Search by customer / bill no..." value={searchBill} onChange={e => setSearchBill(e.target.value)} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                <h4 style={{ fontWeight: 700, margin: 0, color: '#1a1a2e' }}>Saved Bills ({bills.length})</h4>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[['all', 'All', bills.length, 'g-btn-dark'],
+                      ['pending', 'Pending', bills.filter(b => getBillStatus(b) === 'pending').length, 'g-btn-warning'],
+                      ['paid', 'Paid', bills.filter(b => getBillStatus(b) === 'paid').length, 'g-btn-success']
+                    ].map(([val, label, count, cls]) => (
+                      <button key={val} className={`g-btn g-btn-sm ${statusFilter === val ? cls : 'g-btn-ghost'}`}
+                        style={{ borderRadius: 10 }} onClick={() => setStatusFilter(val)}>
+                        {label} <span className="g-badge g-badge-gray" style={{ marginLeft: 4 }}>{count}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <i className="bi bi-search" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#889', fontSize: 13 }}></i>
+                    <input className="g-input" style={{ paddingLeft: 34, width: 240 }}
+                      placeholder="Search customer / bill no..." value={searchBill} onChange={e => setSearchBill(e.target.value)} />
+                  </div>
                 </div>
               </div>
 
               {filteredBills.length === 0 ? (
-                <div className="text-center py-5">
-                  <i className="bi bi-inbox display-1 text-muted d-block mb-3"></i>
-                  <h5 className="text-muted">{searchBill ? 'No results found' : 'No bills yet'}</h5>
-                  <button className="btn btn-primary mt-3" onClick={() => setActiveTab('new')}>
-                    <i className="bi bi-plus-circle me-1"></i>Create First Bill
+                <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+                  <i className="bi bi-inbox" style={{ fontSize: 56, color: '#bbc', display: 'block', marginBottom: 12 }}></i>
+                  <h5 style={{ color: '#889' }}>{searchBill ? 'No results found' : 'No bills yet'}</h5>
+                  <button className="g-btn g-btn-primary" style={{ marginTop: 16 }} onClick={() => setActiveTab('new')}>
+                    <i className="bi bi-plus-circle"></i>Create First Bill
                   </button>
                 </div>
               ) : (
-                <div className="table-responsive">
-                  <table className="table table-hover align-middle">
-                    <thead className="table-dark">
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="g-table">
+                    <thead>
                       <tr>
                         <th>Bill No</th>
                         <th>Date</th>
                         <th>Company</th>
                         <th>Customer</th>
-                        <th className="text-end">Taxable</th>
-                        <th className="text-end">GST</th>
-                        <th className="text-end">Total</th>
+                        <th style={{ textAlign: 'right' }}>Taxable</th>
+                        <th style={{ textAlign: 'right' }}>GST</th>
+                        <th style={{ textAlign: 'right' }}>Total</th>
                         <th>GST Mode</th>
+                        <th style={{ textAlign: 'center' }}>Status</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredBills.map(bill => (
                         <tr key={bill.id}>
-                          <td><span className="badge bg-primary">{bill.billNo}</span></td>
-                          <td><small>{new Date(bill.billDate).toLocaleDateString('en-IN')}</small></td>
-                          <td className="fw-semibold">{bill.company?.name || '—'}</td>
+                          <td><span className="g-badge g-badge-blue">{bill.billNo}</span></td>
+                          <td><span style={{ fontSize: 12, color: '#667' }}>{new Date(bill.billDate).toLocaleDateString('en-IN')}</span></td>
+                          <td style={{ fontWeight: 600 }}>{bill.company?.name || '—'}</td>
                           <td>{bill.customer?.name || '—'}</td>
-                          <td className="text-end">₹{(bill.totals?.taxable || 0).toFixed(2)}</td>
-                          <td className="text-end text-warning">₹{(bill.totals?.tax || 0).toFixed(2)}</td>
-                          <td className="text-end fw-bold text-success">
-                            ₹{(bill.totals?.total || 0).toFixed(2)}
-                            <br /><small className="text-muted">Balance: ₹{Math.max(0, (bill.totals?.total || 0) - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + (r.receiptAmount || 0), 0)).toLocaleString()}</small>
+                          <td style={{ textAlign: 'right' }}>₹{(bill.totals?.taxable || 0).toFixed(2)}</td>
+                          <td style={{ textAlign: 'right', color: '#b45309' }}>₹{(bill.totals?.tax || 0).toFixed(2)}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 700, color: '#00843d' }}>₹{(bill.totals?.total || 0).toFixed(2)}</div>
+                            <div style={{ fontSize: 11, color: '#889' }}>Bal: ₹{Math.max(0, (bill.totals?.total || 0) - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + (r.receiptAmount || 0), 0)).toLocaleString()}</div>
                           </td>
-                          <td><span className={`badge ${bill.gstMode === 'none' ? 'bg-secondary' : 'bg-success'}`}>{bill.gstMode}</span></td>
+                          <td><span className={`g-badge ${bill.gstMode === 'none' ? 'g-badge-gray' : 'g-badge-green'}`}>{bill.gstMode}</span></td>
+                          <td style={{ textAlign: 'center' }}>
+                            {getBillStatus(bill) === 'paid'
+                              ? <span className="g-badge g-badge-green"><i className="bi bi-check-circle-fill me-1"></i>PAID</span>
+                              : <span className="g-badge g-badge-yellow"><i className="bi bi-clock-fill me-1"></i>PENDING</span>
+                            }
+                          </td>
                           <td>
-                            <div className="btn-group btn-group-sm">
-                              <button className="btn btn-outline-primary" onClick={() => editBill(bill)} title="Edit"><i className="bi bi-pencil"></i></button>
-                              <button className="btn btn-outline-success" onClick={() => { editBill(bill); setTimeout(() => setPreview(true), 100); }} title="Print"><i className="bi bi-printer"></i></button>
-                              <button className="btn btn-info" onClick={() => selectInvoiceForPayment({
-                                billNo: bill.billNo,
-                                customer: bill.customer.name,
-                                total: bill.totals.total,
-                                companyName: bill.company.name,
-                                invoiceDate: bill.billDate,
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button className="g-btn g-btn-primary g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} onClick={() => editBill(bill)} title="Edit"><i className="bi bi-pencil"></i></button>
+                              <button className="g-btn g-btn-success g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} onClick={() => { editBill(bill); setTimeout(() => setPreview(true), 100); }} title="Print"><i className="bi bi-printer"></i></button>
+                              <button className="g-btn g-btn-cyan g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} title="Payment" onClick={() => selectInvoiceForPayment({
+                                billNo: bill.billNo, customer: bill.customer.name, total: bill.totals.total,
+                                companyName: bill.company.name, invoiceDate: bill.billDate,
                                 balance: bill.totals.total - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount), 0)
-                              })} title="Payment"><i className="bi bi-receipt"></i></button>
-                              <button className="btn btn-outline-danger" onClick={() => deleteBill(bill.id)} title="Delete"><i className="bi bi-trash"></i></button>
+                              })}><i className="bi bi-receipt"></i></button>
+                              <button className="g-btn g-btn-danger g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} onClick={() => deleteBill(bill.id)} title="Delete"><i className="bi bi-trash"></i></button>
                             </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className="table-secondary fw-bold">
+                    <tfoot>
                       <tr>
                         <td colSpan="4">Total ({filteredBills.length} bills)</td>
-                        <td className="text-end">₹{filteredBills.reduce((s, b) => s + (b.totals?.taxable || 0), 0).toFixed(2)}</td>
-                        <td className="text-end text-warning">₹{filteredBills.reduce((s, b) => s + (b.totals?.tax || 0), 0).toFixed(2)}</td>
-                        <td className="text-end text-success">₹{filteredBills.reduce((s, b) => s + (b.totals?.total || 0), 0).toFixed(2)}</td>
-                        <td colSpan="2"></td>
+                        <td style={{ textAlign: 'right' }}>₹{filteredBills.reduce((s, b) => s + (b.totals?.taxable || 0), 0).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', color: '#b45309' }}>₹{filteredBills.reduce((s, b) => s + (b.totals?.tax || 0), 0).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', color: '#00843d' }}>₹{filteredBills.reduce((s, b) => s + (b.totals?.total || 0), 0).toFixed(2)}</td>
+                        <td colSpan="3"></td>
                       </tr>
                     </tfoot>
                   </table>

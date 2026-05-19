@@ -63,13 +63,13 @@ const ItemMaster = () => {
     }
   };
 
-  // ── EDIT — open form ───────────────────────────────────────────────────────
+// ── EDIT — open form ───────────────────────────────────────────────────────
   const editItemFn = (item) => {
-    setEditingId(item.ItemCode);
+    setEditingId(item.id);
     setEditItem({
-      name: item.ItemName ?? '',
-      defaultRate: num(item.Rate),
-      defaultTaxPercent: num(item.Tax)
+      name: item.name ?? '',
+      defaultRate: num(item.defaultRate),
+      defaultTaxPercent: num(item.defaultTaxPercent)
     });
   };
 
@@ -106,8 +106,8 @@ const ItemMaster = () => {
     }
   };
 
-  const filteredItems = items.filter((item) =>
-    (item.ItemName ?? '').toLowerCase().includes(searchTerm.toLowerCase())
+const filteredItems = items.filter((item) =>
+    (item.name ?? '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const exportCSV = (data, filename) => {
@@ -116,7 +116,7 @@ const ItemMaster = () => {
     const csvContent = [
       headers.join(','),
       ...data.map((row) =>
-        [row.ItemCode, row.ItemName, num(row.Rate), num(row.Tax), formatDate(row.CreatedDate)].join(',')
+[row.id, row.name, num(row.defaultRate), num(row.defaultTaxPercent), formatDate(row.createdDate)]
       )
     ].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -189,7 +189,7 @@ const ItemMaster = () => {
                   </div>
 
                   <div className="col-12 col-md-6 col-lg-2">
-                    <button className="btn btn-success w-100" onClick={addItem} disabled={saving}>
+                    <button className="g-btn g-btn-success g-btn-block" onClick={addItem} disabled={saving}>
                       {saving
                         ? <span className="spinner-border spinner-border-sm me-1"></span>
                         : <i className="bi bi-plus-lg me-1"></i>
@@ -205,7 +205,7 @@ const ItemMaster = () => {
               <div className="d-flex gap-2 mb-3">
                 <input className="form-control" placeholder="Search items..."
                   value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                <button className="btn btn-outline-success btn-sm text-nowrap"
+                <button className="g-btn g-btn-success g-btn-sm"
                   onClick={() => exportCSV(filteredItems, 'items')}>
                   Export CSV
                 </button>
@@ -226,20 +226,20 @@ const ItemMaster = () => {
                       <th>Actions</th>
                     </tr>
                   </thead>
-                  <tbody>
+<tbody>
                     {filteredItems.map((item) => (
-                      <tr key={item.ItemCode}>
-                        <td><span className="badge bg-secondary">{item.ItemCode}</span></td>
-                        <td>{item.ItemName}</td>
-                        <td className="text-end">₹{num(item.Rate).toFixed(2)}</td>
+                      <tr key={item.id}>
+                        <td><span className="badge bg-secondary">{item.id}</span></td>
+                        <td>{item.name}</td>
+                        <td className="text-end">₹{num(item.defaultRate).toFixed(2)}</td>
                         <td className="text-center">
-                          <span className="badge bg-success">{num(item.Tax)}%</span>
+                          <span className="badge bg-success">{num(item.defaultTaxPercent)}%</span>
                         </td>
-                        <td className="text-muted small">{formatDate(item.CreatedDate)}</td>
+                        <td className="text-muted small">{formatDate(item.createdDate)}</td>
                         <td>
                           <div className="d-flex flex-wrap gap-1">
-                            <button className="btn btn-sm btn-primary" onClick={() => editItemFn(item)}>Edit</button>
-                            <button className="btn btn-sm btn-danger" onClick={() => deleteItemFn(item.ItemCode)}>Delete</button>
+                            <button className="g-btn g-btn-primary g-btn-sm" onClick={() => editItemFn(item)}>Edit</button>
+                            <button className="g-btn g-btn-danger g-btn-sm" onClick={() => deleteItemFn(item.id)}>Delete</button>
                           </div>
                         </td>
                       </tr>
@@ -288,11 +288,11 @@ const ItemMaster = () => {
 
                     <div className="col-12 col-md-6 col-lg-4">
                       <div className="d-flex gap-2">
-                        <button className="btn btn-success flex-fill" onClick={saveEdit} disabled={saving}>
+                        <button className="g-btn g-btn-success" onClick={saveEdit} disabled={saving}>
                           {saving ? <span className="spinner-border spinner-border-sm me-1"></span> : null}
                           Save
                         </button>
-                        <button className="btn btn-secondary flex-fill"
+                        <button className="g-btn g-btn-ghost"
                           onClick={() => { setEditingId(null); setEditItem({ ...EMPTY_ITEM }); }}>
                           Cancel
                         </button>

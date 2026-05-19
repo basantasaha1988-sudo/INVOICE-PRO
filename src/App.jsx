@@ -13,6 +13,7 @@ import { ItemMasterProvider } from "./contexts/ItemMasterContext";
 import { CompanyMasterProvider } from "./contexts/CompanyMasterContext";
 import Dashboard from "./components/Dashboard";
 import ReceiptPayment from "./components/reciptpayment";
+import CustomerMaster from "./components/CustomerMaster";
 // Already in your App.jsx — the {currentPage === 'dashboard'} block will render it
 
 const ThemeContext = createContext();
@@ -27,14 +28,14 @@ export const useDarkMode = () => {
 };
 
 function App() {
-  const [currentTheme, setCurrentTheme] = useState('light');
+  const [currentTheme, setCurrentTheme] = useState('green');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('home');
   const [selectedInvoice, setSelectedInvoice] = useState(null); // {total, customer, billNo, balance, paid: 0}
   const [receipts, setReceipts] = useState([]);
 
-  const themes = ['light', 'dark', 'red', 'blue', 'green', 'yellow', 'orange', 'brown', 'gold', 'black', 'neon-green', 'black-lemon', 'dark-yellow'];
+  const themes = ['green', 'black', 'red', 'orange', 'yellow', 'purple'];
 
   useEffect(() => {
     const savedAuth = localStorage.getItem('authToken');
@@ -43,7 +44,7 @@ function App() {
       setIsAuthenticated(true);
       setUser(JSON.parse(savedUser));
     }
-    const savedTheme = localStorage.getItem('currentTheme') || 'light';
+    const savedTheme = localStorage.getItem('currentTheme') || 'green';
     setCurrentTheme(savedTheme);
     document.documentElement.className = savedTheme;
 
@@ -152,6 +153,8 @@ function App() {
                     <ItemMaster />
 
                     <CompanyMaster />
+
+                    <CustomerMaster />
 
                   </div>
                 </div>

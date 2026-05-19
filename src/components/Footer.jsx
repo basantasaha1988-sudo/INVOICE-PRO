@@ -141,7 +141,7 @@ const Footer = () => {
               {/* User management button */}
               <div className="mb-3">
                 <button
-                  className="btn btn-outline-primary btn-sm"
+                  className="g-btn g-btn-ghost g-btn-sm"
                   onClick={() => setShowUserModal(true)}
                 >
                   <i className="bi bi-person-gear me-1"></i>
@@ -151,14 +151,14 @@ const Footer = () => {
 
               {/* Social icons */}
               <div className="d-flex gap-2 justify-content-center justify-content-md-end">
-                <a href="#" className="btn btn-outline-secondary btn-sm p-2 rounded-circle" aria-label="GitHub">
+                <a href="#" className="g-btn g-btn-ghost g-btn-sm p-2" aria-label="GitHub">
                   <i className="bi bi-github"></i>
                 </a>
-                <a href="#" className="btn btn-outline-info btn-sm p-2 rounded-circle" aria-label="LinkedIn">
+                <a href="#" className="g-btn g-btn-cyan g-btn-sm p-2" aria-label="LinkedIn">
                   <i className="bi bi-linkedin"></i>
                 </a>
                 <a href="https://wa.me/917980479921" target="_blank" rel="noreferrer"
-                  className="btn btn-outline-success btn-sm p-2 rounded-circle" aria-label="WhatsApp">
+                  className="g-btn g-btn-success g-btn-sm p-2" aria-label="WhatsApp">
                   <i className="bi bi-whatsapp"></i>
                 </a>
               </div>
@@ -268,7 +268,7 @@ const Footer = () => {
                         />
                       </div>
                     </div>
-                    <button className="btn btn-primary w-100" onClick={handleAddUser}>
+                    <button className="g-btn g-btn-primary g-btn-block" onClick={handleAddUser}>
                       <i className="bi bi-person-plus me-2"></i>Create User
                     </button>
 
@@ -348,7 +348,7 @@ const Footer = () => {
                         />
                       </div>
                     </div>
-                    <button className="btn btn-warning w-100 text-dark fw-semibold" onClick={handleChangePassword}>
+                    <button className="g-btn g-btn-warning g-btn-block" onClick={handleChangePassword}>
                       <i className="bi bi-key me-2"></i>Change Password
                     </button>
                   </div>

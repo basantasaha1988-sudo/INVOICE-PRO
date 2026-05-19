@@ -151,13 +151,13 @@ setReceiveSaving(true);
                 </small>
               </div>
               <div className="d-flex gap-2 flex-wrap">
-                <button className="btn btn-outline-secondary" onClick={() => onNavigateToHome?.()}>
+                <button className="g-btn g-btn-ghost" onClick={() => onNavigateToHome?.()}>
                   <i className="bi bi-arrow-left me-1"></i>Back to Invoice
                 </button>
-                <button className="btn btn-success" data-bs-toggle="modal" data-bs-target="#receiveModal">
+                <button className="g-btn g-btn-success" data-bs-toggle="modal" data-bs-target="#receiveModal">
                   <i className="bi bi-arrow-down-circle me-1"></i>Receive Items
                 </button>
-                <button className="btn btn-outline-success" onClick={exportCSV}>
+                <button className="g-btn g-btn-success" onClick={exportCSV}>
                   <i className="bi bi-download me-1"></i>Export CSV
                 </button>
               </div>
@@ -201,7 +201,7 @@ setReceiveSaving(true);
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
               {searchTerm && (
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => setSearchTerm('')}>
+                <button className="g-btn g-btn-ghost g-btn-sm" onClick={() => setSearchTerm('')}>
                   <i className="bi bi-x"></i>
                 </button>
               )}
@@ -273,12 +273,12 @@ setReceiveSaving(true);
                                     if (e.key === 'Escape') { setEditingId(null); setStockError(''); }
                                   }}
                                 />
-                                <button className="btn btn-success btn-sm" onClick={() => updateStock(id)} disabled={savingStock} title="Save">
+                                <button className="g-btn g-btn-success g-btn-sm" onClick={() => updateStock(id)} disabled={savingStock} title="Save">
                                   {savingStock
                                     ? <span className="spinner-border spinner-border-sm"></span>
                                     : <i className="bi bi-check-lg"></i>}
                                 </button>
-                                <button className="btn btn-secondary btn-sm" onClick={() => { setEditingId(null); setStockError(''); }} title="Cancel">
+                                <button className="g-btn g-btn-ghost g-btn-sm" onClick={() => { setEditingId(null); setStockError(''); }} title="Cancel">
                                   <i className="bi bi-x"></i>
                                 </button>
                               </div>
@@ -292,7 +292,7 @@ setReceiveSaving(true);
                           <td className="text-end fw-bold">Rs.{value.toLocaleString('en-IN')}</td>
                           <td>
                             <button
-                              className="btn btn-outline-primary btn-sm"
+                              className="g-btn g-btn-ghost g-btn-sm"
                               onClick={() => { setEditingId(id); setEditStock(stock); }}
                               title="Edit Stock"
                             >
@@ -415,8 +415,8 @@ setReceiveSaving(true);
               </div>
             </div>
             <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-              <button type="button" className="btn btn-success" onClick={submitReceive} disabled={receiveSaving}>
+              <button type="button" className="g-btn g-btn-ghost" data-bs-dismiss="modal">Cancel</button>
+              <button type="button" className="g-btn g-btn-success" onClick={submitReceive} disabled={receiveSaving}>
                 {receiveSaving
                   ? <><span className="spinner-border spinner-border-sm me-1"></span>Saving...</>
                   : <><i className="bi bi-check-circle me-1"></i>Receive Stock</>}

@@ -118,7 +118,7 @@ const Inventory = () => {
           <h3 className="text-muted mb-3">No items in inventory</h3>
           <p className="text-muted mb-4">Add items through Item Master to manage stock</p>
           <button 
-            className="btn btn-primary btn-lg" 
+            className="g-btn g-btn-primary g-btn-lg" 
             data-bs-toggle="modal" 
             data-bs-target="#itemModal"
           >
@@ -148,7 +148,7 @@ const Inventory = () => {
                 </div>
                 <div className="d-flex gap-2">
                   <button 
-                    className="btn btn-success" 
+                    className="g-btn g-btn-success" 
                     data-bs-toggle="modal" 
                     data-bs-target="#receiveModal"
                     title="Receive new stock"
@@ -214,13 +214,13 @@ const Inventory = () => {
                                 }}
                               />
                               <button 
-                                className="btn btn-outline-success btn-sm" 
+                                className="g-btn g-btn-success g-btn-sm" 
                                 onClick={() => updateStock(item.id)}
                               >
                                 <i className="bi bi-check-lg"></i>
                               </button>
                               <button 
-                                className="btn btn-outline-secondary btn-sm" 
+                                className="g-btn g-btn-ghost g-btn-sm" 
                                 onClick={() => {
                                   setEditingId(null);
                                   setEditStock(0);
@@ -243,7 +243,7 @@ const Inventory = () => {
                         <td>
                           <div className="btn-group btn-group-sm" role="group">
                             <button 
-                              className="btn btn-outline-primary" 
+                              className="g-btn g-btn-ghost" 
                               onClick={() => {
                                 setEditingId(item.id);
                                 setEditStock(item.stock || 0);
@@ -253,7 +253,7 @@ const Inventory = () => {
                               <i className="bi bi-pencil"></i>
                             </button>
                             <button 
-                              className="btn btn-outline-secondary" 
+                              className="g-btn g-btn-ghost" 
                               data-bs-toggle="modal" 
                               data-bs-target="#itemModal"
                               title="Edit Item"
@@ -379,10 +379,10 @@ const Inventory = () => {
               </form>
             </div>
             <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="button" className="g-btn g-btn-ghost" data-bs-dismiss="modal">Cancel</button>
               <button 
                 type="button" 
-                className="btn btn-success" 
+                className="g-btn g-btn-success" 
                 onClick={submitReceive}
               >
                 <i className="bi bi-check-circle me-1"></i>Receive Items

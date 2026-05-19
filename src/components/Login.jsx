@@ -143,7 +143,7 @@ const Login = ({ onLogin }) => {
           {/* Submit */}
           <button
             type="submit"
-            className="btn btn-primary btn-lg w-100 mb-3 fw-semibold"
+            className="g-btn g-btn-primary g-btn-block mb-3"
             disabled={loading}
           >
             {loading ? (

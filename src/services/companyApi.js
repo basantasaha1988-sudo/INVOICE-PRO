@@ -1,4 +1,5 @@
-const BASE_URL = 'http://localhost:5000/api';
+// Uses Vite proxy: /api → backend server (no hardcoded port)
+const BASE_URL = '/api';
 
 const handleResponse = async (res) => {
   const data = await res.json();

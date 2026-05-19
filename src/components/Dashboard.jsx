@@ -151,7 +151,7 @@ const Dashboard = () => {
             </h2>
             <small className="text-muted">Sales analytics, stock overview & report generation</small>
           </div>
-          <button className="btn btn-success btn-sm btn-md-normal d-flex align-items-center gap-2 align-self-start align-self-md-center" onClick={exportExcel}>
+          <button className="g-btn g-btn-success g-btn-sm d-flex align-items-center gap-2 align-self-start align-self-md-center" onClick={exportExcel}>
             <i className="bi bi-file-earmark-excel-fill"></i>
             <span>Export Excel</span>
           </button>
@@ -208,7 +208,7 @@ const Dashboard = () => {
                   {[['daily','Day'],['weekly','Wk'],['monthly','Mo'],['yearly','Yr']].map(([val, label]) => (
                     <button
                       key={val}
-                      className={`btn ${period === val ? 'btn-primary' : 'btn-outline-secondary'}`}
+                      className={`g-btn g-btn-sm ${period === val ? 'g-btn-primary' : 'g-btn-ghost'}`}
                       onClick={() => setPeriod(val)}
                       style={{ fontSize: '0.75rem' }}
                     >

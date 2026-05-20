@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 import { useAuth } from "../App";
 
 const Footer = () => {
@@ -7,6 +8,7 @@ const Footer = () => {
   // ── Modal state ──
   const [showUserModal, setShowUserModal] = useState(false);
   const [modalTab, setModalTab] = useState("add"); // "add" | "change"
+  const [loading, setLoading] = useState(false);
 
   // ── Add new user ──
   const [newUser, setNewUser] = useState({ username: "", password: "", confirmPassword: "" });
@@ -16,53 +18,121 @@ const Footer = () => {
   const [pwdForm, setPwdForm] = useState({ username: "", oldPassword: "", newPassword: "", confirmNew: "" });
   const [pwdMsg, setPwdMsg] = useState({ type: "", text: "" });
 
-  // ── Get all users from localStorage ──
-  const getUsers = () => {
-    try { return JSON.parse(localStorage.getItem("invoicepro_users") || "[]"); } catch { return []; }
+  // ── Existing users list ──
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+
+  // ── Fetch all users ──
+  const fetchUsers = async () => {
+    try {
+      setUsersLoading(true);
+      const response = await axios.get('/api/users');
+      if (response.data.success) {
+        setUsers(response.data.users || []);
+      }
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    } finally {
+      setUsersLoading(false);
+    }
   };
-  const saveUsers = (users) => localStorage.setItem("invoicepro_users", JSON.stringify(users));
+
+  // ── Fetch users when modal opens ──
+  useEffect(() => {
+    if (showUserModal && modalTab === "add") {
+      fetchUsers();
+    }
+  }, [showUserModal, modalTab]);
 
   // ── Add User ──
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     setAddMsg({ type: "", text: "" });
     const { username, password, confirmPassword } = newUser;
+    
     if (!username.trim()) return setAddMsg({ type: "danger", text: "Username is required." });
     if (username.trim().length < 3) return setAddMsg({ type: "danger", text: "Username must be at least 3 characters." });
     if (!password) return setAddMsg({ type: "danger", text: "Password is required." });
     if (password.length < 4) return setAddMsg({ type: "danger", text: "Password must be at least 4 characters." });
     if (password !== confirmPassword) return setAddMsg({ type: "danger", text: "Passwords do not match." });
 
-    const users = getUsers();
-    if (users.find(u => u.username.toLowerCase() === username.trim().toLowerCase())) {
-      return setAddMsg({ type: "danger", text: "Username already exists." });
+    try {
+      setLoading(true);
+      const response = await axios.post('/api/users/add', {
+        username: username.trim(),
+        password,
+        email: null
+      });
+
+      if (response.data.success) {
+        setAddMsg({ type: "success", text: `✅ User "${username.trim()}" created successfully!` });
+        setNewUser({ username: "", password: "", confirmPassword: "" });
+        fetchUsers(); // Refresh the user list
+        
+        // Auto-hide success message after 3 seconds
+        setTimeout(() => setAddMsg({ type: "", text: "" }), 3000);
+      }
+    } catch (err) {
+      let errMsg = "Failed to create user.";
+      
+      if (err.response?.status === 404) {
+        errMsg = "API endpoint not found. Ensure the backend server is running.";
+      } else if (err.response?.data?.error) {
+        errMsg = err.response.data.error;
+      } else if (err.code === 'ERR_NETWORK' || err.code === 'ERR_CONNECTION_REFUSED') {
+        errMsg = "Cannot connect to server. Make sure the backend is running on http://localhost:3001";
+      } else if (err.message) {
+        errMsg = err.message;
+      }
+      
+      setAddMsg({ type: "danger", text: errMsg });
+    } finally {
+      setLoading(false);
     }
-    users.push({ username: username.trim(), password });
-    saveUsers(users);
-    setAddMsg({ type: "success", text: `✅ User "${username.trim()}" created successfully!` });
-    setNewUser({ username: "", password: "", confirmPassword: "" });
   };
 
   // ── Change Password ──
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     setPwdMsg({ type: "", text: "" });
     const { username, oldPassword, newPassword, confirmNew } = pwdForm;
+    
     if (!username.trim()) return setPwdMsg({ type: "danger", text: "Username is required." });
     if (!oldPassword) return setPwdMsg({ type: "danger", text: "Current password is required." });
     if (!newPassword) return setPwdMsg({ type: "danger", text: "New password is required." });
     if (newPassword.length < 4) return setPwdMsg({ type: "danger", text: "New password must be at least 4 characters." });
     if (newPassword !== confirmNew) return setPwdMsg({ type: "danger", text: "New passwords do not match." });
 
-    const users = getUsers();
-    const idx = users.findIndex(
-      u => u.username.toLowerCase() === username.trim().toLowerCase() && u.password === oldPassword
-    );
-    if (idx === -1) return setPwdMsg({ type: "danger", text: "Username or current password is incorrect." });
-    if (oldPassword === newPassword) return setPwdMsg({ type: "warning", text: "New password must be different from current password." });
+    try {
+      setLoading(true);
+      const response = await axios.post('/api/users/change-password', {
+        username: username.trim(),
+        oldPassword,
+        newPassword
+      });
 
-    users[idx].password = newPassword;
-    saveUsers(users);
-    setPwdMsg({ type: "success", text: "✅ Password changed successfully!" });
-    setPwdForm({ username: "", oldPassword: "", newPassword: "", confirmNew: "" });
+      if (response.data.success) {
+        setPwdMsg({ type: "success", text: "✅ Password changed successfully!" });
+        setPwdForm({ username: "", oldPassword: "", newPassword: "", confirmNew: "" });
+        
+        // Auto-hide success message after 3 seconds
+        setTimeout(() => setPwdMsg({ type: "", text: "" }), 3000);
+      }
+    } catch (err) {
+      let errMsg = "Failed to change password.";
+      
+      if (err.response?.status === 404) {
+        errMsg = "API endpoint not found. Ensure the backend server is running.";
+      } else if (err.response?.data?.error) {
+        errMsg = err.response.data.error;
+      } else if (err.code === 'ERR_NETWORK' || err.code === 'ERR_CONNECTION_REFUSED') {
+        errMsg = "Cannot connect to server. Make sure the backend is running on http://localhost:3001";
+      } else if (err.message) {
+        errMsg = err.message;
+      }
+      
+      setPwdMsg({ type: "danger", text: errMsg });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const closeModal = () => {
@@ -268,21 +338,34 @@ const Footer = () => {
                         />
                       </div>
                     </div>
-                    <button className="g-btn g-btn-primary g-btn-block" onClick={handleAddUser}>
-                      <i className="bi bi-person-plus me-2"></i>Create User
+                    <button className="g-btn g-btn-primary g-btn-block" onClick={handleAddUser} disabled={loading}>
+                      {loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2"></span>
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <i className="bi bi-person-plus me-2"></i>Create User
+                        </>
+                      )}
                     </button>
 
                     {/* Existing users list */}
-                    {getUsers().length > 0 && (
+                    {users.length > 0 && (
                       <div className="mt-3">
-                        <small className="text-muted fw-semibold d-block mb-2">Existing Users:</small>
-                        <div className="d-flex flex-wrap gap-2">
-                          {getUsers().map((u, i) => (
-                            <span key={i} className="badge bg-secondary bg-opacity-10 text-secondary border px-2 py-1">
-                              <i className="bi bi-person me-1"></i>{u.username}
-                            </span>
-                          ))}
-                        </div>
+                        <small className="text-muted fw-semibold d-block mb-2">Existing Users ({users.length}):</small>
+                        {usersLoading ? (
+                          <small className="text-muted">Loading users...</small>
+                        ) : (
+                          <div className="d-flex flex-wrap gap-2">
+                            {users.map((u, i) => (
+                              <span key={i} className="badge bg-secondary bg-opacity-10 text-secondary border px-2 py-1">
+                                <i className="bi bi-person me-1"></i>{u.username}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -300,13 +383,23 @@ const Footer = () => {
                       <label className="form-label fw-semibold small">Username <span className="text-danger">*</span></label>
                       <div className="input-group">
                         <span className="input-group-text"><i className="bi bi-person"></i></span>
-                        <input
-                          className="form-control"
-                          placeholder="Your username"
+                        <select
+                          className="form-select"
                           value={pwdForm.username}
                           onChange={e => setPwdForm(p => ({ ...p, username: e.target.value }))}
-                        />
+                          disabled={usersLoading || loading}
+                        >
+                          <option value="">Select a user...</option>
+                          {users.map((u) => (
+                            <option key={u.id} value={u.username}>
+                              {u.username}
+                            </option>
+                          ))}
+                        </select>
                       </div>
+                      {users.length === 0 && !usersLoading && (
+                        <small className="text-muted mt-1 d-block">No users found. Create a user first in the "Add New User" tab.</small>
+                      )}
                     </div>
                     <div className="mb-3">
                       <label className="form-label fw-semibold small">Current Password <span className="text-danger">*</span></label>
@@ -348,8 +441,17 @@ const Footer = () => {
                         />
                       </div>
                     </div>
-                    <button className="g-btn g-btn-warning g-btn-block" onClick={handleChangePassword}>
-                      <i className="bi bi-key me-2"></i>Change Password
+                    <button className="g-btn g-btn-warning g-btn-block" onClick={handleChangePassword} disabled={loading || users.length === 0}>
+                      {loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2"></span>
+                          Changing...
+                        </>
+                      ) : (
+                        <>
+                          <i className="bi bi-key me-2"></i>Change Password
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -359,7 +461,7 @@ const Footer = () => {
               <div className="modal-footer border-0 pt-0 justify-content-center">
                 <small className="text-muted">
                   <i className="bi bi-shield-lock me-1"></i>
-                  User data is stored locally on this device.
+                  User data is stored in the SQL database.
                 </small>
               </div>
 

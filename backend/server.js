@@ -7,6 +7,12 @@ const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+// ── Request logging middleware ─────────────────────────────
+app.use((req, res, next) => {
+  console.log(`📨 ${req.method} ${req.path}`);
+  next();
+});
+
 // ── Route modules ─────────────────────────────────────────────────────────────
 app.use('/api/saleinvoice',  require('./api/saleinvoice'));
 app.use('/api/itemmaster',   require('./api/itemmaster'));
@@ -32,8 +38,39 @@ const dbConfig = {
 const pool = new sql.ConnectionPool(dbConfig);
 const poolConnect = pool.connect();
 
-poolConnect.then(() => {
+// ─── Seed PaymentMethod table if empty ───────────────────
+const seedPaymentMethods = async () => {
+  try {
+    const check = await pool.request().query(
+      'SELECT COUNT(*) AS cnt FROM dbo.PaymentMethod'
+    );
+    if (check.recordset[0].cnt === 0) {
+      // Insert one by one for compatibility with all MSSQL versions
+      const methods = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer', 'NEFT', 'RTGS'];
+      for (const name of methods) {
+        await pool.request()
+          .input('n', sql.NVarChar(50), name)
+          .query(`INSERT INTO dbo.PaymentMethod (MethodName, IsActive) VALUES (@n, 1)`);
+      }
+      console.log('✅ PaymentMethod table seeded with', methods.length, 'methods');
+    } else {
+      console.log('✅ PaymentMethod already has rows, skipping seed');
+    }
+  } catch (err) {
+    console.warn('⚠ Could not seed PaymentMethod:', err.message);
+  }
+};
+
+// ─── USERS MANAGEMENT (modular route) ──────────────────────
+const { router: usersRouter, setPool: setUsersPool } = require('./api/users');
+app.use('/api/users', usersRouter);
+
+poolConnect.then(async () => {
   console.log('✅ Connected to InvoicePro SQL Server at', dbConfig.server);
+  // Initialize pool reference for users module after connection is ready
+  setUsersPool(pool);
+  console.log('✅ User Management API initialized');
+  await seedPaymentMethods();
 }).catch(err => {
   console.error('❌ DB Connection Failed:', err.message);
 });
@@ -48,6 +85,33 @@ app.get('/api/ping', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// ─── LOGIN ────────────────────────────────────────────────
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: 'Username and password are required.' });
+  }
+
+  try {
+    await poolConnect;
+    const result = await pool.request()
+      .input('username', sql.NVarChar, username.trim())
+      .input('password', sql.NVarChar, password)
+      .query('SELECT id, username FROM users WHERE username = @username AND password = @password');
+
+    if (result.recordset.length === 0) {
+      return res.status(401).json({ success: false, error: 'Invalid username or password.' });
+    }
+
+    return res.json({ success: true, user: result.recordset[0] });
+  } catch (err) {
+    console.error('Login error:', err.message);
+    return res.status(500).json({ success: false, error: 'Server error. Please try again.' });
+  }
+});
+
 
 // ─── CUSTOMERS CRUD ────────────────────────────────────────
 
@@ -135,29 +199,159 @@ app.delete('/api/customers/:id', async (req, res) => {
   }
 });
 
+// ─── GET All Payment Methods (including inactive) — for Master UI ─────────
+app.get('/api/payment-methods/all', async (req, res) => {
+  try {
+    await poolConnect;
+    const result = await pool.request().query(`
+      SELECT PaymentMethodID, MethodName,
+             ISNULL(Description,'') AS Description,
+             IsActive
+      FROM dbo.PaymentMethod
+      ORDER BY MethodName
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST — Add payment method ─────────────────────────────
+app.post('/api/payment-methods', async (req, res) => {
+  const { MethodName, Description, IsActive } = req.body;
+  if (!MethodName?.trim()) return res.status(400).json({ error: 'MethodName is required' });
+  try {
+    await poolConnect;
+    // Check duplicate name
+    const dup = await pool.request()
+      .input('n', sql.NVarChar(50), MethodName.trim())
+      .query(`SELECT PaymentMethodID FROM dbo.PaymentMethod WHERE LOWER(MethodName)=LOWER(@n)`);
+    if (dup.recordset.length > 0) return res.status(409).json({ error: `"${MethodName}" already exists` });
+
+    const ins = await pool.request()
+      .input('n',    sql.NVarChar(50),  MethodName.trim())
+      .input('desc', sql.NVarChar(150), Description || null)
+      .input('act',  sql.Bit,           IsActive != null ? IsActive : 1)
+      .query(`
+        INSERT INTO dbo.PaymentMethod (MethodName, Description, IsActive)
+        OUTPUT INSERTED.PaymentMethodID
+        VALUES (@n, @desc, @act)
+      `);
+    res.status(201).json({ ok: true, PaymentMethodID: ins.recordset[0].PaymentMethodID });
+  } catch (err) {
+    // Description column may not exist yet — try without it
+    if (err.message.includes('Description')) {
+      try {
+        const ins2 = await pool.request()
+          .input('n',   sql.NVarChar(50), MethodName.trim())
+          .input('act', sql.Bit,          IsActive != null ? IsActive : 1)
+          .query(`
+            INSERT INTO dbo.PaymentMethod (MethodName, IsActive)
+            OUTPUT INSERTED.PaymentMethodID
+            VALUES (@n, @act)
+          `);
+        return res.status(201).json({ ok: true, PaymentMethodID: ins2.recordset[0].PaymentMethodID });
+      } catch (e2) {
+        return res.status(500).json({ error: e2.message });
+      }
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /:id — Update payment method ─────────────────────
+app.put('/api/payment-methods/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { MethodName, Description, IsActive } = req.body;
+  if (!MethodName?.trim()) return res.status(400).json({ error: 'MethodName is required' });
+  try {
+    await poolConnect;
+    try {
+      await pool.request()
+        .input('id',   sql.Int,          id)
+        .input('n',    sql.NVarChar(50),  MethodName.trim())
+        .input('desc', sql.NVarChar(150), Description || null)
+        .input('act',  sql.Bit,           IsActive != null ? IsActive : 1)
+        .query(`UPDATE dbo.PaymentMethod SET MethodName=@n, Description=@desc, IsActive=@act WHERE PaymentMethodID=@id`);
+    } catch (e) {
+      // Fallback if Description column missing
+      await pool.request()
+        .input('id',  sql.Int,         id)
+        .input('n',   sql.NVarChar(50), MethodName.trim())
+        .input('act', sql.Bit,          IsActive != null ? IsActive : 1)
+        .query(`UPDATE dbo.PaymentMethod SET MethodName=@n, IsActive=@act WHERE PaymentMethodID=@id`);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── DELETE /:id — Delete payment method ──────────────────
+app.delete('/api/payment-methods/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    await poolConnect;
+    // Prevent deleting if used in receipts
+    const inUse = await pool.request()
+      .input('id', sql.Int, id)
+      .query(`SELECT TOP 1 ReceiptID FROM dbo.ReceiptHeader WHERE PaymentMethodID=@id`);
+    if (inUse.recordset.length > 0) {
+      return res.status(409).json({ error: 'Cannot delete — this method is used in existing receipts. Deactivate it instead.' });
+    }
+    await pool.request()
+      .input('id', sql.Int, id)
+      .query(`DELETE FROM dbo.PaymentMethod WHERE PaymentMethodID=@id`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET Payment Methods ───────────────────────────────────
 app.get('/api/payment-methods', async (req, res) => {
   try {
     await poolConnect;
+
+    // Fetch rows
     let result;
     try {
-      // Try with IsActive filter first
       result = await pool.request().query(`
-        SELECT PaymentMethodID, MethodName
-        FROM dbo.PaymentMethod
-        WHERE IsActive = 1
-        ORDER BY MethodName
+        SELECT PaymentMethodID, MethodName FROM dbo.PaymentMethod WHERE IsActive = 1 ORDER BY MethodName
       `);
     } catch {
-      // IsActive column may not exist yet — return all rows
       result = await pool.request().query(`
-        SELECT PaymentMethodID, MethodName
-        FROM dbo.PaymentMethod
-        ORDER BY MethodName
+        SELECT PaymentMethodID, MethodName FROM dbo.PaymentMethod ORDER BY MethodName
       `);
     }
+
+    // If empty → seed inline, then re-fetch
+    if (result.recordset.length === 0) {
+      console.log('PaymentMethod table empty — seeding now...');
+      const methods = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer', 'NEFT', 'RTGS'];
+      for (const name of methods) {
+        try {
+          await pool.request()
+            .input('n', sql.NVarChar(50), name)
+            .query(`INSERT INTO dbo.PaymentMethod (MethodName, IsActive) VALUES (@n, 1)`);
+        } catch (e) {
+          console.warn('Seed insert failed for', name, e.message);
+        }
+      }
+      // Re-fetch after seeding
+      try {
+        result = await pool.request().query(`
+          SELECT PaymentMethodID, MethodName FROM dbo.PaymentMethod ORDER BY MethodName
+        `);
+      } catch (e) {
+        console.error('Re-fetch after seed failed:', e.message);
+      }
+    }
+
+    console.log('Payment methods returned:', result.recordset.length);
     res.json(result.recordset);
   } catch (err) {
+    console.error('GET /api/payment-methods error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

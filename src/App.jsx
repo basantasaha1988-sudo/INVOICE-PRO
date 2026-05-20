@@ -14,6 +14,7 @@ import { CompanyMasterProvider } from "./contexts/CompanyMasterContext";
 import Dashboard from "./components/Dashboard";
 import ReceiptPayment from "./components/reciptpayment";
 import CustomerMaster from "./components/CustomerMaster";
+import PaymentMethodMaster from "./components/PaymentMethodMaster";
 // Already in your App.jsx — the {currentPage === 'dashboard'} block will render it
 
 const ThemeContext = createContext();
@@ -109,7 +110,11 @@ function App() {
 
 {currentPage === 'home' && (
                       <SaleInvoice 
-                        onNavigateToInventory={() => setCurrentPage('inventory')} 
+                        onNavigateToInventory={() => setCurrentPage('inventory')}
+                        onNavigateToCustomerMaster={() => {
+                          const trigger = document.getElementById('customerModalTrigger');
+                          if (trigger) trigger.click();
+                        }}
                         selectInvoiceForPayment={(data) => {
                           // Calculate current paid and balance
                           const paid = receipts
@@ -155,6 +160,13 @@ function App() {
                     <CompanyMaster />
 
                     <CustomerMaster />
+                    <PaymentMethodMaster />
+                    <button
+                      id="customerModalTrigger"
+                      data-bs-toggle="modal"
+                      data-bs-target="#customerModal"
+                      style={{ display: 'none' }}
+                    />
 
                   </div>
                 </div>

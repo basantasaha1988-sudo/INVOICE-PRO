@@ -246,3 +246,41 @@
   .submit-btn { width: 100%; justify-content: center; }
   .rp-toast { left: 16px; right: 16px; min-width: auto; }
 }
+
+/* ── Extra mobile polish for Receipt Payment ────────── */
+@media (max-width: 640px) {
+  .receipt-container { padding: 10px 6px; }
+  .receipt-form { padding: 14px 12px; }
+
+  /* Back + title: shrink */
+  .receipt-container h2 { font-size: 1.1rem !important; }
+  .receipt-container .g-btn-sm { padding: 6px 10px !important; min-width: 48px !important; }
+
+  /* Stacked action buttons */
+  .receipt-container .d-flex.gap-3 { flex-direction: column !important; gap: 8px !important; }
+  .receipt-container .d-flex.gap-3 .g-btn { width: 100% !important; }
+
+  /* Table: card-style rows as alternative to scroll */
+  .receipt-container .table thead { display: none; }
+  .receipt-container .table tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 8px;
+    padding: 10px;
+    border: 1.5px solid rgba(200,200,240,0.35);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    background: rgba(255,255,255,0.55);
+  }
+  .receipt-container .table tbody td {
+    border: none !important;
+    padding: 2px 0 !important;
+    font-size: 12px !important;
+    white-space: normal !important;
+  }
+  .receipt-container .table tbody td:first-child { grid-column: 1 / -1; }
+  .receipt-container .table tfoot { display: none; }
+
+  /* Make table not force min-width */
+  .receipt-container .table { min-width: unset !important; }
+}

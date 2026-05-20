@@ -66,7 +66,17 @@ const Login = ({ onLogin }) => {
         {/* Header */}
         <div className="text-center mb-5">
           <div className="mb-3">
-            <i className="bi bi-receipt display-3 text-primary"></i>
+            <img
+              src="/invoice-pro-logo.png"
+              alt="InvoicePro Logo"
+              style={{
+                width: 110,
+                height: 110,
+                objectFit: 'cover',
+                borderRadius: 24,
+                boxShadow: '0 4px 18px rgba(0,0,0,0.13)',
+              }}
+            />
           </div>
           <h1 className="fw-bold fs-2 mb-1">InvoicePro</h1>
           <p className="text-muted mb-0 small">

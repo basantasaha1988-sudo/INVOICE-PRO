@@ -33,6 +33,7 @@ const ReceiptPayment = ({
   const [saleBills,      setSaleBills]      = useState([]);
   const [savedReceipts,  setSavedReceipts]  = useState([]);
   const [loading,        setLoading]        = useState(false);
+  const [viewReceipt,    setViewReceipt]    = useState(null);
   const [apiStatus,      setApiStatus]      = useState('idle'); // idle | ok | error
   const [toast,          setToast]          = useState(null);
 
@@ -72,30 +73,46 @@ const ReceiptPayment = ({
       ]);
 
       if (cRes.ok) {
-        setCustomers(await cRes.json());
+        const custData = await cRes.json();
+        setCustomers(custData);
+        // Auto-select customer matching the invoice's customer name
+        if (invoice?.customer) {
+          const match = custData.find(c =>
+            c.CustomerName?.toLowerCase() === invoice.customer?.toLowerCase()
+          );
+          if (match) {
+            setFormData(prev => ({ ...prev, customerID: String(match.CustomerID) }));
+            // Also load their bills
+            try {
+              const bRes = await fetch(`${API}/sale-bills?customerId=${match.CustomerID}`, { headers: getHeaders() });
+              if (bRes.ok) setSaleBills(await bRes.json());
+            } catch {}
+          }
+        }
       } else {
-        const err = await cRes.json().catch(() => ({}));
-        console.error('Customers API error:', cRes.status, err);
+        console.error('Customers API error:', cRes.status);
         setApiStatus('error');
-        return;
       }
 
       if (pmRes.ok) {
-        setPaymentMethods(await pmRes.json());
-      } else {
-        // PaymentMethod may fail if IsActive column missing — retry without filter
-        try {
-          const fallback = await fetch(`${API}/payment-methods-all`, { headers: getHeaders() });
-          if (fallback.ok) setPaymentMethods(await fallback.json());
-        } catch {}
+        const methods = await pmRes.json();
+        setPaymentMethods(methods);
+        // Auto-select first method if none selected and methods exist
+        if (methods.length > 0) {
+          setFormData(prev => ({
+            ...prev,
+            paymentMethodID: prev.paymentMethodID || String(methods[0].PaymentMethodID),
+          }));
+        }
       }
+      // If pmRes not ok, leave paymentMethods empty — backend will seed on next request
 
       setApiStatus('ok');
     } catch (err) {
       console.error('loadDropdowns network error:', err);
-      setApiStatus('error');
+      setApiStatus('error'); // paymentMethods stays empty; backend seeds on next load
     }
-  }, []);
+  }, [invoice]);
 
   // ─── Load saved receipts ───────────────────────────────
   const loadReceipts = useCallback(async () => {
@@ -109,6 +126,18 @@ const ReceiptPayment = ({
     loadDropdowns();
     loadReceipts();
   }, [loadDropdowns, loadReceipts]);
+
+  // ─── Auto-retry payment methods if still empty after 2s ───────────────────
+  useEffect(() => {
+    if (paymentMethods.length > 0) return;
+    const timer = setTimeout(() => {
+      if (paymentMethods.length === 0) {
+        console.log('Payment methods still empty — retrying...');
+        loadDropdowns();
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [paymentMethods.length, loadDropdowns]);
 
   // ─── Pre-fill from invoice prop ───────────────────────
   useEffect(() => {
@@ -310,11 +339,11 @@ const ReceiptPayment = ({
       {/* Header */}
       <div className="d-flex align-items-center mb-4 gap-3">
         <button
-          className="g-btn g-btn-ghost g-btn-sm p-2"
+          className="g-btn g-btn-primary g-btn-sm"
           onClick={onClose}
-          style={{ minWidth: '50px', height: '50px' }}
+          style={{ borderRadius: 10, padding: '8px 18px', display: 'flex', alignItems: 'center', gap: 6 }}
         >
-          ← Back
+          <i className="bi bi-arrow-left"></i> Back
         </button>
         <h2 className="mb-0 fw-bold">
           <i className="bi bi-receipt me-2 text-success"></i>
@@ -458,6 +487,15 @@ const ReceiptPayment = ({
                   </option>
                 ))}
               </select>
+              {paymentMethods.length === 0 && apiStatus === 'ok' && (
+                <small style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  ⚠ No active payment methods found. Add methods via
+                  <button type="button" data-bs-toggle="modal" data-bs-target="#paymentMethodModal"
+                    style={{ background: 'none', border: 'none', color: '#1a56db', cursor: 'pointer', textDecoration: 'underline', padding: 0, fontSize: 12 }}>
+                    Pay Methods Master
+                  </button>
+                </small>
+              )}
             </div>
 
             {/* Reference No */}
@@ -614,13 +652,25 @@ const ReceiptPayment = ({
                         }`}>{status}</span>
                       </td>
                       <td>
-                        <button
-                          className="g-btn g-btn-danger g-btn-sm"
-                          onClick={() => handleDelete(id)}
-                          title="Delete"
-                        >
-                          <i className="bi bi-trash"></i>
-                        </button>
+                        <div className="d-flex gap-1 flex-wrap">
+                          <button
+                            className="g-btn g-btn-sm"
+                            style={{ background: '#1a56db', color: '#fff', border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', fontSize: 13 }}
+                            onClick={() => setViewReceipt({ id, date, rno, cname, invoice_, total, paid, method, refno, status })}
+                            title="View"
+                          >
+                            <i className="bi bi-eye"></i>
+                            <span className="d-none d-md-inline ms-1">View</span>
+                          </button>
+                          <button
+                            className="g-btn g-btn-danger g-btn-sm"
+                            onClick={() => handleDelete(id)}
+                            title="Delete"
+                          >
+                            <i className="bi bi-trash"></i>
+                            <span className="d-none d-md-inline ms-1">Del</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -642,6 +692,147 @@ const ReceiptPayment = ({
           </div>
         )}
       </div>
+
+      {/* ── View Receipt Modal ─────────────────────────── */}
+      {viewReceipt && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => setViewReceipt(null)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: isDark ? '#1e2533' : '#fff',
+              color: isDark ? '#f1f5f9' : '#1e293b',
+              borderRadius: 16,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              width: '100%', maxWidth: 480,
+              overflow: 'hidden',
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              background: 'linear-gradient(135deg,#1a56db,#7e3af2)',
+              padding: '18px 24px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <i className="bi bi-receipt" style={{ color: '#fff', fontSize: 22 }}></i>
+                <div>
+                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>Receipt Details</div>
+                  <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>{viewReceipt.rno}</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setViewReceipt(null)}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, color: '#fff', width: 32, height: 32, cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >×</button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '20px 24px' }}>
+              {[
+                { label: 'Receipt No',  value: viewReceipt.rno,                         icon: 'bi-hash' },
+                { label: 'Date',        value: String(viewReceipt.date).split('T')[0],   icon: 'bi-calendar3' },
+                { label: 'Customer',    value: viewReceipt.cname,                        icon: 'bi-person' },
+                { label: 'Invoice',     value: viewReceipt.invoice_ || '—',              icon: 'bi-file-text' },
+                { label: 'Total',       value: `₹${fmt(viewReceipt.total)}`,             icon: 'bi-currency-rupee' },
+                { label: 'Paid',        value: `₹${fmt(viewReceipt.paid)}`,              icon: 'bi-check-circle', green: true },
+                { label: 'Method',      value: viewReceipt.method,                       icon: 'bi-credit-card' },
+                { label: 'Ref No',      value: viewReceipt.refno || '—',                 icon: 'bi-upc' },
+                { label: 'Status',      value: viewReceipt.status,                       icon: 'bi-info-circle' },
+              ].map(row => (
+                <div key={row.label} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '9px 0',
+                  borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9'}`,
+                }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }}>
+                    <i className={`bi ${row.icon}`}></i> {row.label}
+                  </span>
+                  <span style={{ fontWeight: 600, fontSize: 14, color: row.green ? '#16a34a' : undefined }}>
+                    {row.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '12px 24px 20px', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                onClick={() => {
+                  const r = viewReceipt;
+                  const win = window.open('', '_blank', 'width=480,height=640');
+                  win.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                      <title>Receipt - ${r.rno}</title>
+                      <style>
+                        * { box-sizing: border-box; margin: 0; padding: 0; }
+                        body { font-family: 'Segoe UI', sans-serif; background: #fff; color: #1e293b; padding: 32px; }
+                        .header { background: linear-gradient(135deg,#1a56db,#7e3af2); color: #fff; border-radius: 12px; padding: 20px 24px; margin-bottom: 24px; }
+                        .header h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+                        .header p  { font-size: 13px; opacity: 0.8; }
+                        .row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+                        .row:last-child { border-bottom: none; }
+                        .label { color: #64748b; }
+                        .value { font-weight: 600; }
+                        .green { color: #16a34a; }
+                        .footer { margin-top: 28px; text-align: center; font-size: 12px; color: #94a3b8; }
+                        @media print { body { padding: 16px; } }
+                      </style>
+                    </head>
+                    <body>
+                      <div class="header">
+                        <h2>Receipt Details</h2>
+                        <p>${r.rno}</p>
+                      </div>
+                      <div class="row"><span class="label">Receipt No</span><span class="value">${r.rno}</span></div>
+                      <div class="row"><span class="label">Date</span><span class="value">${String(r.date).split('T')[0]}</span></div>
+                      <div class="row"><span class="label">Customer</span><span class="value">${r.cname}</span></div>
+                      <div class="row"><span class="label">Invoice</span><span class="value">${r.invoice_ || '—'}</span></div>
+                      <div class="row"><span class="label">Total</span><span class="value">₹${fmt(r.total)}</span></div>
+                      <div class="row"><span class="label">Paid</span><span class="value green">₹${fmt(r.paid)}</span></div>
+                      <div class="row"><span class="label">Method</span><span class="value">${r.method}</span></div>
+                      <div class="row"><span class="label">Ref No</span><span class="value">${r.refno || '—'}</span></div>
+                      <div class="row"><span class="label">Status</span><span class="value">${r.status}</span></div>
+                      <div class="footer">Secured by <strong>DIGICODE PRO</strong> · InvoicePro</div>
+                    </body>
+                    </html>
+                  `);
+                  win.document.close();
+                  win.focus();
+                  setTimeout(() => { win.print(); win.close(); }, 400);
+                }}
+                style={{
+                  background: '#16a34a',
+                  color: '#fff', border: 'none', borderRadius: 10,
+                  padding: '9px 22px', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+                  display: 'flex', alignItems: 'center', gap: 7,
+                }}
+              >
+                <i className="bi bi-printer"></i> Print
+              </button>
+              <button
+                onClick={() => setViewReceipt(null)}
+                style={{
+                  background: 'linear-gradient(135deg,#1a56db,#7e3af2)',
+                  color: '#fff', border: 'none', borderRadius: 10,
+                  padding: '9px 24px', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -35,7 +35,7 @@ const splitGST = (taxAmt, isInterState) => {
   return { igst: 0, cgst: taxAmt / 2, sgst: taxAmt / 2 };
 };
 
-const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts = [] }) => {
+const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, selectInvoiceForPayment, receipts = [] }) => {
   const { currentTheme } = useTheme();
   const { items: itemMaster, setItems: setItemMaster } = useItemMaster();
   const { companies: companyMaster } = useCompanyMaster();
@@ -79,6 +79,7 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
   const [stockWarnings, setStockWarnings] = useState([]);
   const [searchBill, setSearchBill] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'paid' | 'pending'
+  const [viewBill, setViewBill] = useState(null);
 
   // ── Customers (autocomplete) ────────────────────────────────────────────────
   const [customerList, setCustomerList] = useState([]);
@@ -123,9 +124,7 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
     } else {
       setPhoneMatches([]);
       setPhoneLookupStatus('new');
-      // Pre-fill phone for new customer
-      setCustomer(p => ({ ...p, phone: trimmed }));
-      setPhoneStep(false);
+      // Stay on phone gate — user must register the customer in Customer Master first
     }
   };
 
@@ -878,8 +877,18 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
               {phoneStep ? (
                 <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px 0' }}>
                   <div className="g-card" style={{ maxWidth: 460, width: '100%', padding: '36px 32px', textAlign: 'center' }}>
-                    <div className="g-phone-ring">
-                      <i className="bi bi-telephone-fill" style={{ color: '#1a56db' }}></i>
+                    <div className="g-phone-ring" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <img
+                        src="/invoice-pro-logo.png"
+                        alt="InvoicePro"
+                        style={{
+                          width: 64,
+                          height: 64,
+                          objectFit: 'cover',
+                          borderRadius: 16,
+                          boxShadow: '0 4px 14px rgba(26,86,219,0.2)',
+                        }}
+                      />
                     </div>
                     <h4 style={{ fontWeight: 700, marginBottom: 6, color: '#1a1a2e' }}>Customer Phone Lookup</h4>
                     <p style={{ color: '#889', fontSize: 13, marginBottom: 24 }}>
@@ -932,8 +941,35 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
                     )}
 
                     {phoneLookupStatus === 'new' && (
-                      <div className="g-alert g-alert-info" style={{ marginTop: 12 }}>
-                        <span><i className="bi bi-info-circle-fill me-2"></i>No customer found for <strong>{phoneInput}</strong>. A new customer will be created.</span>
+                      <div style={{ marginTop: 12, textAlign: 'left' }}>
+                        <div className="g-alert g-alert-warning" style={{ marginBottom: 14, alignItems: 'flex-start' }}>
+                          <span>
+                            <i className="bi bi-exclamation-triangle-fill me-2" style={{ color: '#d97706' }}></i>
+                            <strong>New customer — number not registered.</strong>
+                            <br />
+                            <span style={{ fontSize: 13, color: '#666', marginTop: 4, display: 'block' }}>
+                              No record found for <strong>{phoneInput}</strong>. Please add this customer in
+                              <strong> Customer Master</strong> before creating an invoice.
+                            </span>
+                          </span>
+                        </div>
+                        <button
+                          className="g-btn g-btn-primary g-btn-block"
+                          style={{ marginBottom: 8 }}
+                          onClick={() => {
+                            if (typeof onNavigateToCustomerMaster === 'function') {
+                              onNavigateToCustomerMaster();
+                            }
+                          }}
+                        >
+                          <i className="bi bi-person-plus me-2"></i>Register New Customer
+                        </button>
+                        <button
+                          className="g-btn g-btn-ghost g-btn-block"
+                          onClick={() => { setPhoneLookupStatus('idle'); setPhoneInput(''); }}
+                        >
+                          <i className="bi bi-arrow-left me-2"></i>Search a different number
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1290,19 +1326,39 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
                       </button>
                       <button
                         className="g-btn g-btn-cyan g-btn-lg g-btn-block"
-                        style={{ borderRadius: 14, opacity: isBillSaved ? 1 : 0.5, cursor: isBillSaved ? 'pointer' : 'not-allowed' }}
-                        disabled={!isBillSaved}
-                        title={!isBillSaved ? 'Save the bill first to enable payment' : ''}
+                        style={{
+                          borderRadius: 14,
+                          opacity: isBillSaved ? 1 : 0.5,
+                          cursor: (() => {
+                            if (!isBillSaved) return 'not-allowed';
+                            const paid = receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+                            return paid >= totals.total ? 'not-allowed' : 'pointer';
+                          })(),
+                        }}
+                        disabled={!isBillSaved || (() => {
+                          const paid = receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+                          return paid >= totals.total;
+                        })()}
+                        title={!isBillSaved ? 'Save the bill first to enable payment' : (() => {
+                          const paid = receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+                          return paid >= totals.total ? 'Invoice fully paid — no further payment allowed' : '';
+                        })()}
                         onClick={() => {
                           if (!isBillSaved) return;
                           const paid = receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+                          if (paid >= totals.total) return;
                           selectInvoiceForPayment({ total: totals.total, customer: customer.name, billNo, companyName: company.name || '', balance: Math.max(0, totals.total - paid) });
                         }}
                       >
                         <i className={`bi ${isBillSaved ? 'bi-receipt' : 'bi-lock'}`}></i>
-                        {isBillSaved
-                          ? `Receipt Payment (₹${Math.max(0, totals.total - receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0)).toLocaleString()})`
-                          : 'Receipt Payment (Save First)'
+                        {!isBillSaved
+                          ? 'Receipt Payment (Save First)'
+                          : (() => {
+                              const paid = receipts.filter(r => r.paymentDocNumber === billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+                              return paid >= totals.total
+                                ? '✓ Fully Paid'
+                                : `Receipt Payment (₹${Math.max(0, totals.total - paid).toLocaleString()})`;
+                            })()
                         }
                       </button>
                     </div>
@@ -1385,13 +1441,25 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
                           </td>
                           <td>
                             <div style={{ display: 'flex', gap: 4 }}>
+                              <button className="g-btn g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px', background: '#ede9fe', color: '#7c3aed', border: '1px solid #ddd6fe' }} onClick={() => setViewBill(bill)} title="View"><i className="bi bi-eye"></i></button>
                               <button className="g-btn g-btn-primary g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} onClick={() => editBill(bill)} title="Edit"><i className="bi bi-pencil"></i></button>
                               <button className="g-btn g-btn-success g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} onClick={() => { editBill(bill); setTimeout(() => setPreview(true), 100); }} title="Print"><i className="bi bi-printer"></i></button>
-                              <button className="g-btn g-btn-cyan g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} title="Payment" onClick={() => selectInvoiceForPayment({
-                                billNo: bill.billNo, customer: bill.customer.name, total: bill.totals.total,
-                                companyName: bill.company.name, invoiceDate: bill.billDate,
-                                balance: bill.totals.total - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount), 0)
-                              })}><i className="bi bi-receipt"></i></button>
+                              {getBillStatus(bill) === 'paid' ? (
+                                <button
+                                  className="g-btn g-btn-sm"
+                                  style={{ borderRadius: 10, padding: '5px 10px', background: '#d1fae5', color: '#16a34a', border: '1px solid #bbf7d0', cursor: 'not-allowed', opacity: 0.7 }}
+                                  title="Invoice fully paid — no further payment allowed"
+                                  disabled
+                                >
+                                  <i className="bi bi-check-circle-fill"></i>
+                                </button>
+                              ) : (
+                                <button className="g-btn g-btn-cyan g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} title="Payment" onClick={() => selectInvoiceForPayment({
+                                  billNo: bill.billNo, customer: bill.customer.name, total: bill.totals.total,
+                                  companyName: bill.company.name, invoiceDate: bill.billDate,
+                                  balance: bill.totals.total - receipts.filter(r => r.paymentDocNumber === bill.billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount), 0)
+                                })}><i className="bi bi-receipt"></i></button>
+                              )}
                               <button className="g-btn g-btn-danger g-btn-sm" style={{ borderRadius: 10, padding: '5px 10px' }} onClick={() => deleteBill(bill.id)} title="Delete"><i className="bi bi-trash"></i></button>
                             </div>
                           </td>
@@ -1415,6 +1483,165 @@ const SaleInvoice = ({ onNavigateToInventory, selectInvoiceForPayment, receipts 
 
         </div>
       </div>
+
+      {/* ── Bill View Modal ──────────────────────────────── */}
+      {viewBill && (() => {
+        const b = viewBill;
+        const paid = receipts.filter(r => r.paymentDocNumber === b.billNo).reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+        const balance = Math.max(0, (b.totals?.total || 0) - paid);
+        const isPaid = getBillStatus(b) === 'paid';
+        const items = b.items || [];
+
+        const handlePrint = () => {
+          const win = window.open('', '_blank', 'width=680,height=800');
+          win.document.write(`<!DOCTYPE html><html><head><title>Invoice - ${b.billNo}</title><style>
+            *{box-sizing:border-box;margin:0;padding:0}
+            body{font-family:'Segoe UI',sans-serif;background:#fff;color:#1e293b;padding:32px;font-size:13px}
+            .header{background:linear-gradient(135deg,#4f3cc9,#7e3af2);color:#fff;border-radius:12px;padding:20px 24px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center}
+            .header h2{font-size:18px;font-weight:700}.header p{font-size:12px;opacity:.8;margin-top:4px}
+            .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
+            .paid{background:#d1fae5;color:#065f46}.pending{background:#fef3c7;color:#92400e}
+            .meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:20px}
+            .meta-item label{font-size:11px;color:#64748b;display:block;margin-bottom:2px}.meta-item span{font-weight:600}
+            table{width:100%;border-collapse:collapse;margin-bottom:16px}
+            th{background:#f8fafc;padding:8px 10px;text-align:left;font-size:12px;color:#64748b;border-bottom:2px solid #e2e8f0}
+            td{padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:13px}
+            .totals{margin-left:auto;width:260px}.totals .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9}
+            .totals .total-row{font-weight:700;font-size:15px;color:#00843d;border-top:2px solid #e2e8f0;padding-top:8px}
+            .footer{margin-top:28px;text-align:center;font-size:11px;color:#94a3b8}
+            @media print{body{padding:16px}}
+          </style></head><body>
+            <div class="header">
+              <div><h2>${b.billNo}</h2><p>${new Date(b.billDate).toLocaleDateString('en-IN')} &nbsp;·&nbsp; ${b.company?.name || '—'}</p></div>
+              <span class="badge ${isPaid ? 'paid' : 'pending'}">${isPaid ? '✓ PAID' : '⏳ PENDING'}</span>
+            </div>
+            <div class="meta">
+              <div class="meta-item"><label>Customer</label><span>${b.customer?.name || '—'}</span></div>
+              <div class="meta-item"><label>Phone</label><span>${b.customer?.phone || '—'}</span></div>
+              <div class="meta-item"><label>GST Mode</label><span>${b.gstMode || '—'}</span></div>
+              <div class="meta-item"><label>Balance Due</label><span style="color:${balance > 0 ? '#dc2626' : '#16a34a'}">₹${balance.toLocaleString('en-IN', {minimumFractionDigits:2})}</span></div>
+            </div>
+            <table>
+              <thead><tr><th>#</th><th>Item</th><th>HSN</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">GST%</th><th style="text-align:right">Amount</th></tr></thead>
+              <tbody>${items.map((it, i) => `<tr>
+                <td>${i + 1}</td><td>${it.name || it.itemName || '—'}</td><td>${it.hsn || '—'}</td>
+                <td style="text-align:right">${it.qty || it.quantity || 0}</td>
+                <td style="text-align:right">₹${parseFloat(it.rate || it.price || 0).toFixed(2)}</td>
+                <td style="text-align:right">${it.gst || it.gstRate || 0}%</td>
+                <td style="text-align:right">₹${parseFloat(it.total || it.amount || 0).toFixed(2)}</td>
+              </tr>`).join('')}</tbody>
+            </table>
+            <div class="totals">
+              <div class="row"><span>Taxable</span><span>₹${(b.totals?.taxable || 0).toFixed(2)}</span></div>
+              <div class="row"><span>GST</span><span style="color:#b45309">₹${(b.totals?.tax || 0).toFixed(2)}</span></div>
+              <div class="row total-row"><span>Total</span><span>₹${(b.totals?.total || 0).toFixed(2)}</span></div>
+              <div class="row"><span>Paid</span><span style="color:#16a34a">₹${paid.toFixed(2)}</span></div>
+              <div class="row"><span>Balance</span><span style="color:${balance>0?'#dc2626':'#16a34a'}">₹${balance.toFixed(2)}</span></div>
+            </div>
+            <div class="footer">Secured by <strong>DIGICODE PRO</strong> · InvoicePro</div>
+          </body></html>`);
+          win.document.close();
+          win.focus();
+          setTimeout(() => { win.print(); win.close(); }, 400);
+        };
+
+        return (
+          <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+            onClick={() => setViewBill(null)}>
+            <div onClick={e => e.stopPropagation()} style={{ background:'#fff', borderRadius:16, boxShadow:'0 24px 64px rgba(0,0,0,0.3)', width:'100%', maxWidth:580, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column' }}>
+
+              {/* Header */}
+              <div style={{ background:'linear-gradient(135deg,#4f3cc9,#7e3af2)', padding:'18px 24px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <i className="bi bi-file-earmark-text" style={{ color:'#fff', fontSize:22 }}></i>
+                  <div>
+                    <div style={{ color:'#fff', fontWeight:700, fontSize:17 }}>{b.billNo}</div>
+                    <div style={{ color:'rgba(255,255,255,0.75)', fontSize:12 }}>{new Date(b.billDate).toLocaleDateString('en-IN')} · {b.company?.name || '—'}</div>
+                  </div>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ background: isPaid ? '#d1fae5' : '#fef3c7', color: isPaid ? '#065f46' : '#92400e', borderRadius:20, padding:'3px 12px', fontSize:12, fontWeight:700 }}>
+                    {isPaid ? '✓ PAID' : '⏳ PENDING'}
+                  </span>
+                  <button onClick={() => setViewBill(null)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:8, color:'#fff', width:32, height:32, cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div style={{ padding:'20px 24px', overflowY:'auto', flex:1 }}>
+
+                {/* Meta grid */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px 24px', marginBottom:20 }}>
+                  {[
+                    { label:'Customer',  value: b.customer?.name || '—' },
+                    { label:'Phone',     value: b.customer?.phone || '—' },
+                    { label:'GST Mode',  value: b.gstMode || '—' },
+                    { label:'Balance',   value: `₹${balance.toLocaleString('en-IN', {minimumFractionDigits:2})}`, color: balance > 0 ? '#dc2626' : '#16a34a' },
+                  ].map(row => (
+                    <div key={row.label}>
+                      <div style={{ fontSize:11, color:'#64748b', marginBottom:2 }}>{row.label}</div>
+                      <div style={{ fontWeight:600, color: row.color || '#1e293b' }}>{row.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Items table */}
+                {items.length > 0 && (
+                  <div style={{ overflowX:'auto', marginBottom:16 }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                      <thead>
+                        <tr style={{ background:'#f8fafc' }}>
+                          {['#','Item','Qty','Rate','GST%','Amount'].map(h => (
+                            <th key={h} style={{ padding:'8px 10px', textAlign: ['Qty','Rate','GST%','Amount'].includes(h) ? 'right' : 'left', fontSize:11, color:'#64748b', borderBottom:'2px solid #e2e8f0', fontWeight:600 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((it, i) => (
+                          <tr key={i} style={{ borderBottom:'1px solid #f1f5f9' }}>
+                            <td style={{ padding:'7px 10px', color:'#94a3b8', fontSize:12 }}>{i+1}</td>
+                            <td style={{ padding:'7px 10px', fontWeight:500 }}>{it.name || it.itemName || '—'}</td>
+                            <td style={{ padding:'7px 10px', textAlign:'right' }}>{it.qty || it.quantity || 0}</td>
+                            <td style={{ padding:'7px 10px', textAlign:'right' }}>₹{parseFloat(it.rate || it.price || 0).toFixed(2)}</td>
+                            <td style={{ padding:'7px 10px', textAlign:'right' }}>{it.gst || it.gstRate || 0}%</td>
+                            <td style={{ padding:'7px 10px', textAlign:'right', fontWeight:600 }}>₹{parseFloat(it.total || it.amount || 0).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Totals */}
+                <div style={{ marginLeft:'auto', width:240 }}>
+                  {[
+                    { label:'Taxable', value:`₹${(b.totals?.taxable||0).toFixed(2)}` },
+                    { label:'GST',     value:`₹${(b.totals?.tax||0).toFixed(2)}`, color:'#b45309' },
+                    { label:'Total',   value:`₹${(b.totals?.total||0).toFixed(2)}`, color:'#00843d', bold:true, big:true },
+                    { label:'Paid',    value:`₹${paid.toFixed(2)}`, color:'#16a34a' },
+                    { label:'Balance', value:`₹${balance.toFixed(2)}`, color: balance>0 ? '#dc2626' : '#16a34a', bold:true },
+                  ].map(row => (
+                    <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid #f1f5f9' }}>
+                      <span style={{ color:'#64748b', fontSize:13 }}>{row.label}</span>
+                      <span style={{ fontWeight: row.bold ? 700 : 600, fontSize: row.big ? 15 : 13, color: row.color || '#1e293b' }}>{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding:'12px 24px 20px', display:'flex', justifyContent:'flex-end', gap:10, flexShrink:0, borderTop:'1px solid #f1f5f9' }}>
+                <button onClick={handlePrint} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:10, padding:'9px 22px', fontWeight:600, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', gap:7 }}>
+                  <i className="bi bi-printer"></i> Print
+                </button>
+                <button onClick={() => setViewBill(null)} style={{ background:'linear-gradient(135deg,#4f3cc9,#7e3af2)', color:'#fff', border:'none', borderRadius:10, padding:'9px 24px', fontWeight:600, cursor:'pointer', fontSize:14 }}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

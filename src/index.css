@@ -367,25 +367,300 @@ html, body {
 /* ── spinner matches theme ── */
 .spinner-border { color: rgba(26,86,219,0.8) !important; }
 
-/* ── Header: fix dropdown clipping ────────────── */
-/* glass-card has overflow:hidden which clips dropdowns in the header */
+/* ── Header: overflow visible so desktop dropdowns are not clipped ── */
 header.glass-card {
   overflow: visible !important;
 }
-/* The ::before shine pseudo-element needs to stay clipped — use a wrapper trick */
 header.glass-card::before {
   border-radius: 0 !important;
   overflow: hidden;
 }
-/* Ensure dropdowns float above everything */
-header .dropdown-menu,
-header .dropdown-menu.show {
-  z-index: 1080 !important;
-  position: absolute !important;
-  overflow: visible !important;
+/* Bootstrap modals MUST sit above the header — ensure correct stacking */
+.modal-backdrop { z-index: 1040 !important; }
+.modal          { z-index: 1055 !important; }
+.modal-dialog   { z-index: 1056 !important; }
+
+/* ════════════════════════════════════════════════════
+   MOBILE RESPONSIVE SYSTEM — Full Breakpoint Coverage
+   Targets: 320px → 480px → 640px → 768px → 1024px
+════════════════════════════════════════════════════ */
+
+/* ── Viewport meta guard (via CSS) ─────────────────── */
+html { -webkit-text-size-adjust: 100%; }
+
+/* ── Base mobile adjustments ────────────────────────── */
+@media (max-width: 768px) {
+  .main-content { padding: 0 8px 5rem 8px !important; }
+  .container-fluid { padding-left: 8px !important; padding-right: 8px !important; }
+
+  /* Stack all flex rows on mobile */
+  .d-flex.gap-3.flex-wrap { gap: 8px !important; }
+
+  /* Full-width buttons on mobile */
+  .submit-btn { width: 100% !important; }
+
+  /* Modals: full-screen on mobile */
+  .modal-dialog { margin: 0 !important; max-width: 100% !important; }
+  .modal-content { border-radius: 0 !important; min-height: 100dvh; }
+  .modal-dialog-scrollable { height: 100dvh; }
+  .modal-dialog-scrollable .modal-content { max-height: 100dvh; }
+
+  /* Tables: horizontal scroll */
+  .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table { min-width: 540px; }
+  .table th, .table td { font-size: 12px !important; padding: 7px 8px !important; white-space: nowrap; }
+
+  /* Glass card: less padding */
+  .glass-card { padding: 0 !important; }
+
+  /* Toast: full-width bottom */
+  .g-toast { left: 12px !important; right: 12px !important; min-width: auto !important; bottom: 16px !important; font-size: 13px; }
+  .rp-toast { left: 12px !important; right: 12px !important; min-width: auto !important; }
+
+  /* Headings scale */
+  h2 { font-size: 1.3rem !important; }
+  h3 { font-size: 1.15rem !important; }
+  h4 { font-size: 1.05rem !important; }
+  h5 { font-size: 0.95rem !important; }
+
+  /* Badge / chips: smaller */
+  .badge { font-size: 10px !important; padding: 3px 7px !important; }
+
+  /* Stack Bootstrap row cols */
+  .row.g-3 > [class*="col-"] { margin-bottom: 10px; }
 }
-/* User dropdown and theme dropdown containers */
-header .dropdown,
-header .position-relative {
-  overflow: visible !important;
+
+/* ── Header mobile ───────────────────────────────────── */
+/* Mobile menu is now a React fixed overlay — Bootstrap collapse not used */
+@media (max-width: 480px) {
+  .navbar-brand { font-size: 1.3rem !important; }
+}
+
+/* ── Login ───────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .login-card, .glass-card.p-5 { padding: 24px 20px !important; margin: 12px !important; max-width: calc(100% - 24px) !important; }
+}
+
+/* ── Sale Invoice ────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Phone gate */
+  .phone-gate { padding: 16px !important; }
+
+  /* Tabs: horizontal scroll */
+  .g-tabs { overflow-x: auto; flex-wrap: nowrap; padding: 8px 12px 0; gap: 2px; }
+  .g-tab  { white-space: nowrap; padding: 8px 12px; font-size: 12px; }
+
+  /* Item rows: stack on mobile */
+  .item-row-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+
+  /* Print preview: scrollable */
+  .print-preview { padding: 12px !important; font-size: 11px !important; }
+  .print-preview table { font-size: 10px !important; }
+
+  /* Bill list action buttons: icon-only */
+  .bill-actions .g-btn span { display: none; }
+  .bill-actions .g-btn { padding: 6px 10px !important; }
+
+  /* Stats row: 2-col grid */
+  .stats-row { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+
+  /* GST toggle: full width */
+  .gst-toggle-row { flex-wrap: wrap !important; gap: 8px !important; }
+}
+
+@media (max-width: 480px) {
+  /* Item form: single column */
+  .item-row-grid { grid-template-columns: 1fr !important; }
+
+  /* Company / customer two-col → single */
+  .two-col-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ── Dashboard ───────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Stat cards: 2-across */
+  .dashboard-stats { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+
+  /* Charts: full width */
+  .chart-area { overflow-x: auto; }
+  .chart-area svg, .chart-area canvas { min-width: 280px; }
+
+  /* Period tabs */
+  .period-tabs { flex-wrap: wrap !important; gap: 6px !important; }
+  .period-tabs button { flex: 1 1 80px; font-size: 12px !important; padding: 6px 10px !important; }
+
+  /* Report table: scrollable */
+  .report-table-wrap { overflow-x: auto; }
+}
+
+@media (max-width: 480px) {
+  .dashboard-stats { grid-template-columns: 1fr !important; }
+  .g-stat-value { font-size: 1.2rem !important; }
+}
+
+/* ── Receipt Payment ─────────────────────────────────── */
+@media (max-width: 768px) {
+  .receipt-container { padding: 12px 8px !important; }
+  .receipt-form { padding: 16px 14px !important; }
+  .form-grid { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .form-grid .form-group.full-width { grid-column: 1 !important; }
+
+  /* Back button + title row */
+  .receipt-container .d-flex.align-items-center.mb-4 { flex-wrap: wrap; gap: 8px !important; }
+  .receipt-container .d-flex.align-items-center.mb-4 .badge { font-size: 10px !important; }
+
+  /* Receipts table */
+  .table-container { padding: 12px 10px !important; }
+}
+
+/* ── Payment Method Master modal ─────────────────────── */
+@media (max-width: 768px) {
+  #paymentMethodModal .modal-dialog { max-width: 100% !important; }
+  #paymentMethodModal .row.g-2 { flex-direction: column !important; }
+  #paymentMethodModal .row.g-2 > [class*="col-"] { width: 100% !important; max-width: 100% !important; }
+  #paymentMethodModal .table { min-width: 480px; }
+}
+
+/* ── Item Master / Customer Master / Company Master modals ── */
+@media (max-width: 768px) {
+  .modal-xl { max-width: 100% !important; }
+  .modal-body { padding: 12px 14px !important; }
+  .modal-header { padding: 14px 14px 10px !important; }
+  .modal-footer { padding: 10px 14px !important; }
+}
+
+/* ── Footer ─────────────────────────────────────────── */
+@media (max-width: 576px) {
+  footer .d-flex { flex-direction: column !important; text-align: center; gap: 6px !important; }
+}
+
+/* ── Inventory ───────────────────────────────────────── */
+@media (max-width: 768px) {
+  .inventory-grid { grid-template-columns: 1fr !important; }
+  .inventory-filters { flex-wrap: wrap !important; gap: 8px !important; }
+  .inventory-filters > * { flex: 1 1 140px !important; }
+}
+
+/* ── Form utilities ──────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Bootstrap col stacking */
+  .col-md-6, .col-md-4, .col-md-3, .col-md-8, .col-md-9 { width: 100% !important; }
+  .col-lg-6, .col-lg-4, .col-lg-3, .col-lg-8, .col-lg-9 { width: 100% !important; }
+
+  /* Input groups */
+  .input-group { flex-wrap: nowrap !important; }
+  .input-group .form-control { min-width: 0; }
+
+  /* Button groups: wrap */
+  .d-flex.gap-2.flex-wrap { gap: 6px !important; }
+  .btn-group { flex-wrap: wrap !important; }
+
+  /* Select/Input: larger tap targets */
+  .form-control, .form-select {
+    min-height: 42px !important;
+    font-size: 14px !important;
+  }
+
+  /* Labels */
+  .form-label { font-size: 13px !important; margin-bottom: 4px !important; }
+}
+
+/* ── Scrollable bottom bar on very small phones ──────── */
+@media (max-width: 380px) {
+  .g-btn { font-size: 12px !important; padding: 8px 12px !important; }
+  .g-btn-sm { font-size: 11px !important; padding: 5px 10px !important; }
+}
+
+/* ── Touch improvements ──────────────────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  /* Disable hover scale effects on touch - avoids stuck states */
+  .g-btn:hover { transform: none !important; }
+
+  /* Bigger tap targets */
+  .g-btn { min-height: 40px; }
+  .g-btn-sm { min-height: 36px; }
+  .nav-link { min-height: 44px; display: flex !important; align-items: center; }
+
+  /* Remove backdrop-filter on low-powered devices (perf) */
+  @media (max-width: 480px) {
+    .glass-card { backdrop-filter: none !important; background: rgba(255,255,255,0.88) !important; }
+    .receipt-form, .table-container { backdrop-filter: none !important; }
+  }
+}
+
+/* ── Safe area insets (notch phones) ─────────────────── */
+@supports (padding: max(0px)) {
+  .main-content { padding-bottom: max(5rem, env(safe-area-inset-bottom) + 4rem) !important; }
+  header.glass-card { padding-top: max(12px, env(safe-area-inset-top)) !important; }
+}
+
+/* ── Landscape phone ──────────────────────────────────── */
+@media (max-height: 500px) and (orientation: landscape) {
+  .modal-dialog { margin: 0 auto !important; max-width: 640px !important; }
+  .modal-dialog-scrollable .modal-content { max-height: 100dvh; }
+  .min-vh-100 { min-height: auto !important; }
+}
+
+/* ── SaleInvoice inline grids → mobile collapse ──────── */
+@media (max-width: 600px) {
+  /* City/State/PIN row */
+  div[style*="gridTemplateColumns: '1fr 1fr 80px'"],
+  div[style*='gridTemplateColumns: "1fr 1fr 80px"'] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* GSTIN / Phone row */
+  div[style*="gridTemplateColumns: '1fr 1fr'"],
+  div[style*='gridTemplateColumns: "1fr 1fr"'] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Bill No / Date / Due row */
+  div[style*="gridTemplateColumns: '1fr 1fr 1fr'"],
+  div[style*='gridTemplateColumns: "1fr 1fr 1fr"'] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Company + Customer side-by-side → stack */
+  div[style*="gridTemplateColumns: '1fr 1fr'"][style*="gap"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* g-card padding */
+  .g-card { padding: 14px 12px !important; }
+
+  /* Item table: scroll */
+  .g-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Bottom totals row */
+  .g-total-row { flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; }
+  .g-total-row > div { width: 100%; display: flex; justify-content: space-between; }
+
+  /* Tab strip: scroll */
+  .g-tabs { overflow-x: auto; scroll-snap-type: x mandatory; }
+  .g-tab  { scroll-snap-align: start; }
+
+  /* Period selector: full width */
+  .period-tabs .g-btn { min-width: 60px; }
+
+  /* Phone gate step */
+  .phone-gate-card { padding: 16px !important; }
+  .phone-gate-card input { font-size: 18px !important; padding: 12px !important; }
+}
+
+/* ── Dashboard stat grid ─────────────────────────────── */
+@media (max-width: 768px) {
+  /* Stat cards that use inline style grids */
+  div[style*="display: 'grid'"][style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+@media (max-width: 480px) {
+  div[style*="display: 'grid'"][style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+  }
 }

@@ -24,6 +24,9 @@ router.post('/', async (req, res) => {
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Company name is required' });
   }
+  if (logo && logo.length > 600000) {
+    return res.status(400).json({ error: 'Logo image is too large. Please use an image under 400KB.' });
+  }
   try {
     const pool = await getPool();
     const result = await pool.request()
@@ -48,6 +51,9 @@ router.put('/:id', async (req, res) => {
   const { name, address, logo } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Company name is required' });
+  }
+  if (logo && logo.length > 600000) {
+    return res.status(400).json({ error: 'Logo image is too large. Please use an image under 400KB.' });
   }
   try {
     const pool = await getPool();

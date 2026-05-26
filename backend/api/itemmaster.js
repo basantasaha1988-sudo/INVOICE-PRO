@@ -41,7 +41,7 @@ router.post("/", async (req, res) => {
 });
 
 // PATCH /:id/stock  — update stock only (used by Inventory page)
-// MUST be defined before PUT /:id to avoid Express treating "stock" as an :id value
+// MUST be defined before PUT /:id
 router.patch("/:id/stock", async (req, res) => {
   const { id } = req.params;
   const { stock } = req.body;

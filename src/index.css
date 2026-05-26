@@ -309,7 +309,7 @@ html, body {
 
 /* ── Themes (body tint) ────────────────────────── */
 :root.green  { --page-bg-1: rgba(210,245,225,0.97); --page-bg-2: rgba(185,235,210,0.95); }
-:root.black  { --page-bg-1: rgba(12,12,18,0.99);    --page-bg-2: rgba(8,8,14,0.99);    --glass-bg: rgba(30,30,50,0.6);  --glass-border: rgba(60,60,100,0.4); --text-dark: #e8e8f0; --text-mid: #b0b0c8; }
+:root.gray   { --page-bg-1: rgba(220,222,228,0.97); --page-bg-2: rgba(195,198,210,0.95); --glass-bg: rgba(240,241,245,0.52); --glass-border: rgba(210,212,225,0.6); --text-dark: #1e1f2e; --text-mid: #4a4d60; }
 :root.red    { --page-bg-1: rgba(255,220,220,0.97); --page-bg-2: rgba(240,195,195,0.95); }
 :root.orange { --page-bg-1: rgba(255,235,210,0.97); --page-bg-2: rgba(250,218,185,0.95); }
 :root.yellow { --page-bg-1: rgba(255,248,200,0.97); --page-bg-2: rgba(250,238,170,0.95); }

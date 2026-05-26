@@ -35,7 +35,7 @@ const splitGST = (taxAmt, isInterState) => {
   return { igst: 0, cgst: taxAmt / 2, sgst: taxAmt / 2 };
 };
 
-const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, selectInvoiceForPayment, receipts = [] }) => {
+const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, selectInvoiceForPayment, receipts = [], refreshKey = 0 }) => {
   const { currentTheme } = useTheme();
   const { items: itemMaster, setItems: setItemMaster } = useItemMaster();
   const { companies: companyMaster } = useCompanyMaster();
@@ -54,6 +54,10 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
     name: '', address: '', city: '', state: '', pincode: '',
     gstin: '', phone: '', email: '', logo: null
   });
+
+  // ── Project (linked to selected company) ────────────────────────────────────
+  const [companyProjects, setCompanyProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState('');
 
   // ── Customer ────────────────────────────────────────────────────────────────
   const [customer, setCustomer] = useState({
@@ -145,24 +149,24 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
     setPhoneLookupStatus('idle');
   };
 
-  // ── Load bills from DB on mount ──────────────────────────────────────────────
-  useEffect(() => {
-    const loadBills = async () => {
-      setBillsLoading(true);
-      try {
-        const res = await axios.get('/api/saleinvoice');
-        setBills(Array.isArray(res.data) ? res.data : []);
-      } catch (err) {
-        console.error('Failed to load bills from DB:', err.message);
-        // Fallback to localStorage cache
-        const cached = localStorage.getItem('sale_bills');
-        try { const parsed = JSON.parse(cached); setBills(Array.isArray(parsed) ? parsed : []); } catch { setBills([]); }
-      } finally {
-        setBillsLoading(false);
-      }
-    };
-    loadBills();
+  // ── Load bills from DB on mount AND whenever refreshKey changes (after payment) ──
+  const loadBills = useCallback(async () => {
+    setBillsLoading(true);
+    try {
+      const res = await axios.get('/api/saleinvoice');
+      setBills(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Failed to load bills from DB:', err.message);
+      const cached = localStorage.getItem('sale_bills');
+      try { const parsed = JSON.parse(cached); setBills(Array.isArray(parsed) ? parsed : []); } catch { setBills([]); }
+    } finally {
+      setBillsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadBills();
+  }, [loadBills, refreshKey]); // refreshKey increments after payment → triggers re-fetch
 
   // ── Keep localStorage as offline cache ───────────────────────────────────────
   useEffect(() => {
@@ -241,7 +245,19 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
   // ── Company select ──────────────────────────────────────────────────────────
   const handleCompanySelect = (name) => {
     const c = companyMaster.find(x => x.name === name);
-    if (c) setCompany(prev => ({ ...prev, name: c.name, address: c.address || '', gstin: c.gstin || '', logo: c.logo || prev.logo }));
+    if (c) {
+      setCompany(prev => ({ ...prev, name: c.name, address: c.address || '', gstin: c.gstin || '', logo: c.logo || prev.logo }));
+      setSelectedProject('');
+      // Fetch projects for this company
+      const API = import.meta.env.VITE_API_URL || '/api';
+      fetch(`${API}/projects?company_id=${c.id}`)
+        .then(r => r.json())
+        .then(data => setCompanyProjects(Array.isArray(data) ? data : []))
+        .catch(() => setCompanyProjects([]));
+    } else {
+      setCompanyProjects([]);
+      setSelectedProject('');
+    }
   };
 
   // ── Logo upload ─────────────────────────────────────────────────────────────
@@ -288,6 +304,7 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
       id: billId,
       billNo, billDate, dueDate, notes,
       company, customer, items, totals, gstMode, isInterState,
+      projectName: selectedProject || '',
       savedAt: new Date().toISOString()
     };
 
@@ -334,7 +351,7 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
     } finally {
       setSaving(false);
     }
-  }, [company, customer, items, totals, billNo, billDate, dueDate, notes, gstMode, isInterState, editingBillId, bills, stockWarnings, deductStock, restoreStock, setActiveTab]);
+  }, [company, customer, items, totals, billNo, billDate, dueDate, notes, gstMode, isInterState, selectedProject, editingBillId, bills, stockWarnings, deductStock, restoreStock, setActiveTab]);
 
   // ── Edit / Delete ────────────────────────────────────────────────────────────
   const editBill = (bill) => {
@@ -351,6 +368,18 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
     setGstMode(bill.gstMode || 'exclusive');
     setIsInterState(bill.isInterState || false);
     setEditingBillId(bill.id);
+    setSelectedProject(bill.projectName || '');
+    // Reload projects for the company so the dropdown shows correctly
+    if (bill.company?.name) {
+      const found = companyMaster.find(c => c.name === bill.company.name);
+      if (found) {
+        const API = import.meta.env.VITE_API_URL || '/api';
+        fetch(`${API}/projects?company_id=${found.id}`)
+          .then(r => r.json())
+          .then(data => setCompanyProjects(Array.isArray(data) ? data : []))
+          .catch(() => setCompanyProjects([]));
+      }
+    }
     setPreview(false);
   };
 
@@ -410,12 +439,23 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
   };
 
   // ── Filtered bills ───────────────────────────────────────────────────────────
-  const getBillPaidAmount = (bill) =>
-    receipts.filter(r => r.paymentDocNumber === bill.billNo)
+  // ── Use DB PaidAmount/Status as source of truth; fall back to receipt calc ──
+  const getBillPaidAmount = (bill) => {
+    // Prefer the PaidAmount stored directly on the bill (updated by backend on payment)
+    if (typeof bill.paidAmount === 'number') return bill.paidAmount;
+    // Fallback: sum receipts from normalised DB receipts passed as prop
+    return receipts
+      .filter(r => r.paymentDocNumber === bill.billNo)
       .reduce((sum, r) => sum + parseFloat(r.receiptAmount || 0), 0);
+  };
 
-  const getBillStatus = (bill) =>
-    getBillPaidAmount(bill) >= (bill.totals?.total || 0) ? 'paid' : 'pending';
+  const getBillStatus = (bill) => {
+    // Prefer the Status field returned from DB ('Paid', 'Partial', 'Unpaid')
+    const dbStatus = bill.status || bill.Status;
+    if (dbStatus) return dbStatus.toLowerCase() === 'paid' ? 'paid' : 'pending';
+    // Fallback: compute from paid vs total
+    return getBillPaidAmount(bill) >= (bill.totals?.total || 0) ? 'paid' : 'pending';
+  };
 
   const filteredBills = bills.filter(b => {
     const matchesSearch =
@@ -698,6 +738,13 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
               {company.phone && <div style={{ color: '#555' }}>Ph: {company.phone}</div>}
               {company.email && <div style={{ color: '#555' }}>{company.email}</div>}
               {company.gstin && <div style={{ color: '#333', fontWeight: 600, marginTop: 4 }}>GSTIN: {company.gstin}</div>}
+              {selectedProject && (
+                <div style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(26,86,219,0.08)', border: '1px solid rgba(26,86,219,0.22)',
+                  borderRadius: 5, padding: '2px 9px', fontSize: 12, color: '#1a56db', fontWeight: 600 }}>
+                  <span style={{ opacity: 0.6, fontSize: 11 }}>Project:</span> {selectedProject}
+                </div>
+              )}
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#1a56db', letterSpacing: 1 }}>TAX INVOICE</div>
@@ -1101,6 +1148,24 @@ const SaleInvoice = ({ onNavigateToInventory, onNavigateToCustomerMaster, select
                         <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>Email</label>
                         <input className="g-input" type="email" placeholder="Email" value={company.email} onChange={e => setCompany(p => ({ ...p, email: e.target.value }))} style={{ width: '100%' }} />
                       </div>
+                      {companyProjects.length > 0 && (
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#778', display: 'block', marginBottom: 3 }}>
+                            <i className="bi bi-diagram-3 me-1" style={{ color: '#1a56db' }}></i>Select Project
+                          </label>
+                          <select
+                            className="g-input"
+                            style={{ width: '100%' }}
+                            value={selectedProject}
+                            onChange={e => setSelectedProject(e.target.value)}
+                          >
+                            <option value="">-- Select Project (optional) --</option>
+                            {companyProjects.map(p => (
+                              <option key={p.id} value={p.name}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   </div>
 

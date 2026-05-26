@@ -17,10 +17,8 @@ router.get('/', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ success: false, error: 'Database connection not ready.' });
     }
-
     const result = await pool.request()
       .query('SELECT id, username, created_at FROM users ORDER BY username');
-    
     return res.json({ success: true, users: result.recordset });
   } catch (err) {
     console.error('Get users error:', err.message);
@@ -35,11 +33,9 @@ router.post('/add', async (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ success: false, error: 'Username and password are required.' });
   }
-
   if (username.trim().length < 3) {
     return res.status(400).json({ success: false, error: 'Username must be at least 3 characters.' });
   }
-
   if (password.length < 4) {
     return res.status(400).json({ success: false, error: 'Password must be at least 4 characters.' });
   }
@@ -49,16 +45,14 @@ router.post('/add', async (req, res) => {
       return res.status(500).json({ success: false, error: 'Database connection not ready.' });
     }
 
-    // Check if user already exists
     const check = await pool.request()
       .input('username', sql.NVarChar, username.trim().toLowerCase())
       .query('SELECT id FROM users WHERE LOWER(username) = @username');
-    
+
     if (check.recordset.length > 0) {
       return res.status(400).json({ success: false, error: 'Username already exists.' });
     }
 
-    // Insert new user
     const result = await pool.request()
       .input('username', sql.NVarChar, username.trim())
       .input('password', sql.NVarChar, password)
@@ -84,11 +78,9 @@ router.post('/change-password', async (req, res) => {
   if (!username || !oldPassword || !newPassword) {
     return res.status(400).json({ success: false, error: 'All fields are required.' });
   }
-
   if (newPassword.length < 4) {
     return res.status(400).json({ success: false, error: 'New password must be at least 4 characters.' });
   }
-
   if (oldPassword === newPassword) {
     return res.status(400).json({ success: false, error: 'New password must be different from current password.' });
   }
@@ -98,7 +90,6 @@ router.post('/change-password', async (req, res) => {
       return res.status(500).json({ success: false, error: 'Database connection not ready.' });
     }
 
-    // Verify old password
     const verify = await pool.request()
       .input('username', sql.NVarChar, username.trim())
       .input('password', sql.NVarChar, oldPassword)
@@ -108,9 +99,8 @@ router.post('/change-password', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Username or current password is incorrect.' });
     }
 
-    // Update password
     await pool.request()
-      .input('username', sql.NVarChar, username.trim())
+      .input('username',    sql.NVarChar, username.trim())
       .input('newPassword', sql.NVarChar, newPassword)
       .query('UPDATE users SET password = @newPassword WHERE username = @username');
 

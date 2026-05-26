@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:backend": "cd backend && node server.js",
+    "dev:all": "concurrently -n \"frontend,backend\" -c \"cyan,yellow\" \"vite\" \"cd backend && node server.js\"",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -14,6 +16,7 @@
     "bootstrap": "^5.3.8",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
+    "lucide-react": "^1.16.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

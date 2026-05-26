@@ -19,7 +19,6 @@ router.get('/', async (req, res) => {
 });
 
 // ─── POST /upsert — MUST be before /:id to avoid conflict ────────────────────
-// Called automatically when a Sale Invoice is saved with a Bill To entry.
 router.post('/upsert', async (req, res) => {
   const { name, phone, address } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Customer name is required' });

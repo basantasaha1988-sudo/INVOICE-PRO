@@ -1,7 +1,9 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const sql = require('mssql');
 const cors = require('cors');
+const migrate = require('./migrate');
 
 const app = express();
 app.use(cors({ origin: '*' }));
@@ -13,18 +15,27 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Route modules ─────────────────────────────────────────────────────────────
-app.use('/api/saleinvoice',  require('./api/saleinvoice'));
-app.use('/api/itemmaster',   require('./api/itemmaster'));
-app.use('/api/companies',    require('./api/companies'));
-
+// ── Route modules ──────────────────────────────────────────
+app.use('/api/saleinvoice',    require('./api/saleinvoice'));
+app.use('/api/itemmaster',     require('./api/itemmaster'));
+app.use('/api/companies',      require('./api/companies'));
+app.use('/api/projects',       require('./api/projects'));
+app.use('/api/stock-receipts', require('./api/stockreceipts'));
+app.use('/api/transactions',   require('./api/transactions'));
+app.use('/api/po',             require('./api/purchaseorders'));
+app.use('/api/suppliers',      require('./api/suppliers'));
+app.use('/api/grn',            require('./api/grn'));
+app.use('/api/consumption',     require('./api/consumption'));
+app.use('/api/vendor-invoices', require('./api/vendorinvoice'));
+app.use('/api/vendor-payments', require('./api/vendorpayment'));
+app.use('/api/customers',      require('./api/customersapi'));
 
 // ─── DB Config ────────────────────────────────────────────
 const dbConfig = {
-  server:   process.env.DB_SERVER   || '192.168.0.205',
+  server:   process.env.DB_SERVER   || 'localhost',
   database: process.env.DB_NAME     || 'InvoicePro',
   user:     process.env.DB_USER     || 'sa',
-  password: process.env.DB_PASS     || 'infotech@123',
+  password: process.env.DB_PASS     || '',
   port:     parseInt(process.env.DB_PORT || '1433'),
   options: {
     trustServerCertificate: true,
@@ -45,7 +56,6 @@ const seedPaymentMethods = async () => {
       'SELECT COUNT(*) AS cnt FROM dbo.PaymentMethod'
     );
     if (check.recordset[0].cnt === 0) {
-      // Insert one by one for compatibility with all MSSQL versions
       const methods = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer', 'NEFT', 'RTGS'];
       for (const name of methods) {
         await pool.request()
@@ -67,12 +77,21 @@ app.use('/api/users', usersRouter);
 
 poolConnect.then(async () => {
   console.log('✅ Connected to InvoicePro SQL Server at', dbConfig.server);
-  // Initialize pool reference for users module after connection is ready
   setUsersPool(pool);
   console.log('✅ User Management API initialized');
+  try {
+    await migrate();
+    console.log('✅ Database migration complete');
+  } catch (err) {
+    console.error('❌ MIGRATION FAILED — one or more tables may be missing!');
+    console.error('   Error:', err.message);
+    console.error('   The server will continue but some API routes may return 500.');
+    console.error('   Fix the schema error and restart the server.');
+  }
   await seedPaymentMethods();
 }).catch(err => {
   console.error('❌ DB Connection Failed:', err.message);
+  console.error('   Check backend/.env — DB_SERVER, DB_PORT, DB_USER, DB_PASS, DB_NAME');
 });
 
 // ─── Health check ─────────────────────────────────────────
@@ -112,93 +131,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-
-// ─── CUSTOMERS CRUD ────────────────────────────────────────
-
-// GET all
-app.get('/api/customers', async (req, res) => {
-  try {
-    await poolConnect;
-    const result = await pool.request().query(`
-      SELECT CustomerID, CustomerName, Phone, Email, Address, CreatedAt
-      FROM dbo.Customer
-      ORDER BY CustomerName
-    `);
-    res.json(result.recordset);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST upsert (insert or update by name) — called from Sale Invoice & Customer Master
-app.post('/api/customers/upsert', async (req, res) => {
-  const { name, phone, address } = req.body;
-  if (!name?.trim()) return res.status(400).json({ error: 'Customer name is required' });
-  try {
-    await poolConnect;
-    const existing = await pool.request()
-      .input('n', sql.NVarChar(150), name.trim())
-      .query(`SELECT CustomerID FROM dbo.Customer WHERE LOWER(CustomerName) = LOWER(@n)`);
-    if (existing.recordset.length > 0) {
-      const id = existing.recordset[0].CustomerID;
-      await pool.request()
-        .input('id',  sql.Int,          id)
-        .input('ph',  sql.VarChar(20),  phone   || '')
-        .input('addr',sql.NVarChar(300),address || '')
-        .query(`UPDATE dbo.Customer SET Phone=@ph, Address=@addr WHERE CustomerID=@id`);
-      return res.json({ success: true, customerId: id, action: 'updated' });
-    }
-    const ins = await pool.request()
-      .input('n',    sql.NVarChar(150), name.trim())
-      .input('ph',   sql.VarChar(20),   phone   || '')
-      .input('addr', sql.NVarChar(300), address || '')
-      .query(`INSERT INTO dbo.Customer (CustomerName,Phone,Address,CreatedAt)
-              OUTPUT INSERTED.CustomerID
-              VALUES (@n,@ph,@addr,GETDATE())`);
-    res.json({ success: true, customerId: ins.recordset[0].CustomerID, action: 'inserted' });
-  } catch (err) {
-    console.error('POST /api/customers/upsert:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUT /:id — update by CustomerID
-app.put('/api/customers/:id', async (req, res) => {
-  const id = parseInt(req.params.id);
-  const { name, phone, address } = req.body;
-  if (!name?.trim()) return res.status(400).json({ error: 'Customer name is required' });
-  try {
-    await poolConnect;
-    await pool.request()
-      .input('id',   sql.Int,          id)
-      .input('n',    sql.NVarChar(150), name.trim())
-      .input('ph',   sql.VarChar(20),   phone   || '')
-      .input('addr', sql.NVarChar(300), address || '')
-      .query(`UPDATE dbo.Customer
-              SET CustomerName=@n, Phone=@ph, Address=@addr
-              WHERE CustomerID=@id`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('PUT /api/customers/:id:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /:id
-app.delete('/api/customers/:id', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    await poolConnect;
-    await pool.request()
-      .input('id', sql.Int, id)
-      .query(`DELETE FROM dbo.Customer WHERE CustomerID=@id`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('DELETE /api/customers/:id:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ─── GET All Payment Methods (including inactive) — for Master UI ─────────
 app.get('/api/payment-methods/all', async (req, res) => {
   try {
@@ -222,7 +154,6 @@ app.post('/api/payment-methods', async (req, res) => {
   if (!MethodName?.trim()) return res.status(400).json({ error: 'MethodName is required' });
   try {
     await poolConnect;
-    // Check duplicate name
     const dup = await pool.request()
       .input('n', sql.NVarChar(50), MethodName.trim())
       .query(`SELECT PaymentMethodID FROM dbo.PaymentMethod WHERE LOWER(MethodName)=LOWER(@n)`);
@@ -239,7 +170,6 @@ app.post('/api/payment-methods', async (req, res) => {
       `);
     res.status(201).json({ ok: true, PaymentMethodID: ins.recordset[0].PaymentMethodID });
   } catch (err) {
-    // Description column may not exist yet — try without it
     if (err.message.includes('Description')) {
       try {
         const ins2 = await pool.request()
@@ -274,7 +204,6 @@ app.put('/api/payment-methods/:id', async (req, res) => {
         .input('act',  sql.Bit,           IsActive != null ? IsActive : 1)
         .query(`UPDATE dbo.PaymentMethod SET MethodName=@n, Description=@desc, IsActive=@act WHERE PaymentMethodID=@id`);
     } catch (e) {
-      // Fallback if Description column missing
       await pool.request()
         .input('id',  sql.Int,         id)
         .input('n',   sql.NVarChar(50), MethodName.trim())
@@ -292,7 +221,6 @@ app.delete('/api/payment-methods/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     await poolConnect;
-    // Prevent deleting if used in receipts
     const inUse = await pool.request()
       .input('id', sql.Int, id)
       .query(`SELECT TOP 1 ReceiptID FROM dbo.ReceiptHeader WHERE PaymentMethodID=@id`);
@@ -312,8 +240,6 @@ app.delete('/api/payment-methods/:id', async (req, res) => {
 app.get('/api/payment-methods', async (req, res) => {
   try {
     await poolConnect;
-
-    // Fetch rows
     let result;
     try {
       result = await pool.request().query(`
@@ -325,7 +251,6 @@ app.get('/api/payment-methods', async (req, res) => {
       `);
     }
 
-    // If empty → seed inline, then re-fetch
     if (result.recordset.length === 0) {
       console.log('PaymentMethod table empty — seeding now...');
       const methods = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer', 'NEFT', 'RTGS'];
@@ -338,7 +263,6 @@ app.get('/api/payment-methods', async (req, res) => {
           console.warn('Seed insert failed for', name, e.message);
         }
       }
-      // Re-fetch after seeding
       try {
         result = await pool.request().query(`
           SELECT PaymentMethodID, MethodName FROM dbo.PaymentMethod ORDER BY MethodName
@@ -357,10 +281,6 @@ app.get('/api/payment-methods', async (req, res) => {
 });
 
 // ─── GET Sale Bills (unpaid/partial for a customer) ────────
-// FIX: SALE_BILLS uses BillID (UniqueIdentifier) as PK, not SaleBillID (Int).
-// We expose BillID as LinkedBillID for the receipt form.
-// CustomerName is stored in SALE_BILLS directly (no CustomerID FK in that table).
-// PaidAmount / Status / UpdatedAt must exist — run migration SQL if missing.
 app.get('/api/sale-bills', async (req, res) => {
   try {
     await poolConnect;
@@ -382,7 +302,6 @@ app.get('/api/sale-bills', async (req, res) => {
     `;
 
     if (customerId) {
-      // SALE_BILLS stores CustomerName text; look up name from Customer table
       request.input('cid', sql.Int, parseInt(customerId));
       query += `
         AND CustomerName = (
@@ -400,12 +319,11 @@ app.get('/api/sale-bills', async (req, res) => {
 });
 
 // ─── GET All Receipts ─────────────────────────────────────
-// FIX: ReceiptHeader uses LinkedBillID (UniqueIdentifier FK → SALE_BILLS.BillID)
 app.get('/api/receipts', async (req, res) => {
   try {
     await poolConnect;
     const result = await pool.request().query(`
-      SELECT 
+      SELECT
         rh.ReceiptID,
         rh.ReceiptNo,
         rh.ReceiptDate,
@@ -435,7 +353,6 @@ app.get('/api/receipts', async (req, res) => {
 });
 
 // ─── DELETE Receipt ───────────────────────────────────────
-// FIX: uses LinkedBillID (UniqueIdentifier) for SALE_BILLS reversal
 app.delete('/api/receipts/:id', async (req, res) => {
   const tx = new sql.Transaction(pool);
   try {
@@ -443,7 +360,6 @@ app.delete('/api/receipts/:id', async (req, res) => {
     await tx.begin();
     const id = parseInt(req.params.id);
 
-    // Get linked BillID and paid amount before deleting
     const info = await new sql.Request(tx)
       .input('id', sql.Int, id)
       .query(`
@@ -460,23 +376,13 @@ app.delete('/api/receipts/:id', async (req, res) => {
 
     const { LinkedBillID, AmountPaid } = info.recordset[0];
 
-    // Delete PaymentTransaction
-    await new sql.Request(tx)
-      .input('id', sql.Int, id)
+    await new sql.Request(tx).input('id', sql.Int, id)
       .query(`DELETE FROM dbo.PaymentTransaction WHERE ReceiptID = @id`);
-
-    // Delete ReceiptDetail
-    await new sql.Request(tx)
-      .input('id', sql.Int, id)
+    await new sql.Request(tx).input('id', sql.Int, id)
       .query(`DELETE FROM dbo.ReceiptDetail WHERE ReceiptID = @id`);
-
-    // Delete ReceiptHeader
-    await new sql.Request(tx)
-      .input('id', sql.Int, id)
+    await new sql.Request(tx).input('id', sql.Int, id)
       .query(`DELETE FROM dbo.ReceiptHeader WHERE ReceiptID = @id`);
 
-    // Reverse PaidAmount on SALE_BILLS if linked
-    // FIX: use BillID (UniqueIdentifier) not SaleBillID (Int)
     if (LinkedBillID && AmountPaid) {
       await new sql.Request(tx)
         .input('paid', sql.Decimal(18,2),   AmountPaid)
@@ -499,18 +405,12 @@ app.delete('/api/receipts/:id', async (req, res) => {
     await tx.commit();
     res.json({ ok: true, deleted: id });
   } catch (err) {
-    await tx.rollback();
+    try { await tx.rollback(); } catch (_) {}
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── POST /api/receipts  (MAIN SAVE) ──────────────────────
-// FIX: Uses LinkedBillID (UniqueIdentifier) instead of SaleBillID (Int).
-// Writes atomically to:
-//   1. dbo.ReceiptHeader       — master receipt record
-//   2. dbo.ReceiptDetail       — line items
-//   3. dbo.PaymentTransaction  — payment record
-//   4. dbo.SALE_BILLS          — updates PaidAmount/Status when bill linked
+// ─── POST /api/receipts ────────────────────────────────────
 app.post('/api/receipts', async (req, res) => {
   const tx = new sql.Transaction(pool);
   try {
@@ -519,20 +419,18 @@ app.post('/api/receipts', async (req, res) => {
 
     const {
       ReceiptNo, ReceiptDate, CustomerID,
-      LinkedBillID,     // UniqueIdentifier string from SALE_BILLS.BillID (optional)
+      LinkedBillID,
       PaymentMethodID, TotalAmount, DiscountAmount,
       NetAmount, Status, Notes,
       Items = [],
       Payment
     } = req.body;
 
-    // Validate required fields
     if (!ReceiptNo || !CustomerID || !PaymentMethodID || !NetAmount) {
       await tx.rollback();
       return res.status(400).json({ message: 'ReceiptNo, CustomerID, PaymentMethodID, NetAmount are required' });
     }
 
-    // Check duplicate ReceiptNo
     const dupCheck = await new sql.Request(tx)
       .input('rno', sql.VarChar(30), ReceiptNo)
       .query(`SELECT ReceiptID FROM dbo.ReceiptHeader WHERE ReceiptNo = @rno`);
@@ -541,19 +439,38 @@ app.post('/api/receipts', async (req, res) => {
       return res.status(409).json({ message: `Receipt No "${ReceiptNo}" already exists` });
     }
 
-    // 1️⃣  Insert ReceiptHeader
-    // FIX: LinkedBillID is UniqueIdentifier FK to SALE_BILLS.BillID
+    if (LinkedBillID) {
+      const billCheck = await new sql.Request(tx)
+        .input('bid', sql.UniqueIdentifier, LinkedBillID)
+        .query(`SELECT GrandTotal, ISNULL(PaidAmount, 0) AS PaidAmount, ISNULL(Status, 'Unpaid') AS Status
+                 FROM dbo.SALE_BILLS WHERE BillID = @bid`);
+      if (billCheck.recordset.length > 0) {
+        const bill = billCheck.recordset[0];
+        if (bill.Status === 'Paid' || bill.PaidAmount >= bill.GrandTotal) {
+          await tx.rollback();
+          return res.status(409).json({ message: 'This invoice is already fully paid.' });
+        }
+        const dueAmount = bill.GrandTotal - bill.PaidAmount;
+        if (parseFloat(NetAmount) > dueAmount + 0.01) {
+          await tx.rollback();
+          return res.status(400).json({
+            message: `Payment amount (₹${NetAmount}) exceeds balance due (₹${dueAmount.toFixed(2)}).`
+          });
+        }
+      }
+    }
+
     const hRes = await new sql.Request(tx)
-      .input('ReceiptNo',       sql.VarChar(30),       ReceiptNo)
-      .input('ReceiptDate',     sql.Date,               ReceiptDate || new Date())
-      .input('CustomerID',      sql.Int,                parseInt(CustomerID))
-      .input('LinkedBillID',    sql.UniqueIdentifier,   LinkedBillID || null)
-      .input('PaymentMethodID', sql.Int,                parseInt(PaymentMethodID))
-      .input('TotalAmount',     sql.Decimal(18,2),      parseFloat(TotalAmount)    || 0)
-      .input('DiscountAmount',  sql.Decimal(18,2),      parseFloat(DiscountAmount) || 0)
-      .input('NetAmount',       sql.Decimal(18,2),      parseFloat(NetAmount))
-      .input('Status',          sql.VarChar(20),        Status || 'Paid')
-      .input('Notes',           sql.NVarChar(500),      Notes || null)
+      .input('ReceiptNo',       sql.VarChar(30),      ReceiptNo)
+      .input('ReceiptDate',     sql.Date,              ReceiptDate || new Date())
+      .input('CustomerID',      sql.Int,               parseInt(CustomerID))
+      .input('LinkedBillID',    sql.UniqueIdentifier,  LinkedBillID || null)
+      .input('PaymentMethodID', sql.Int,               parseInt(PaymentMethodID))
+      .input('TotalAmount',     sql.Decimal(18,2),     parseFloat(TotalAmount)    || 0)
+      .input('DiscountAmount',  sql.Decimal(18,2),     parseFloat(DiscountAmount) || 0)
+      .input('NetAmount',       sql.Decimal(18,2),     parseFloat(NetAmount))
+      .input('Status',          sql.VarChar(20),       Status || 'Paid')
+      .input('Notes',           sql.NVarChar(500),     Notes || null)
       .query(`
         INSERT INTO dbo.ReceiptHeader
           (ReceiptNo, ReceiptDate, CustomerID, LinkedBillID, PaymentMethodID,
@@ -566,7 +483,6 @@ app.post('/api/receipts', async (req, res) => {
 
     const ReceiptID = hRes.recordset[0].ReceiptID;
 
-    // 2️⃣  Insert ReceiptDetail rows
     for (const item of Items) {
       await new sql.Request(tx)
         .input('ReceiptID',       sql.Int,           ReceiptID)
@@ -584,7 +500,6 @@ app.post('/api/receipts', async (req, res) => {
         `);
     }
 
-    // 3️⃣  Insert PaymentTransaction
     const amountPaid  = parseFloat(Payment?.AmountPaid  || NetAmount);
     const referenceNo = Payment?.ReferenceNo || null;
     const pmID        = parseInt(Payment?.PaymentMethodID || PaymentMethodID);
@@ -601,8 +516,6 @@ app.post('/api/receipts', async (req, res) => {
           (@ReceiptID, @PaymentMethodID, @AmountPaid, @ReferenceNo, GETDATE(), 'Success')
       `);
 
-    // 4️⃣  Update SALE_BILLS if linked invoice
-    // FIX: use BillID (UniqueIdentifier) not SaleBillID (Int)
     if (LinkedBillID) {
       await new sql.Request(tx)
         .input('paid', sql.Decimal(18,2),   amountPaid)
@@ -632,7 +545,6 @@ app.post('/api/receipts', async (req, res) => {
   }
 });
 
-// FIX: Port 3001 matches frontend default: VITE_API_URL || 'http://localhost:3001/api'
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 InvoicePro API running on http://localhost:${PORT}`);

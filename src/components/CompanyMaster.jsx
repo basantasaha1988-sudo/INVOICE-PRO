@@ -35,12 +35,35 @@ const CompanyMaster = () => {
     setNameError(''); return true;
   };
 
+  // Compress + resize image before base64 encoding so it fits in DB (varchar MAX)
+  // Max output dimensions: 300x300px. Quality: 0.82 JPEG. Keeps aspect ratio.
   const handleLogoUpload = (file, setter) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { alert('Logo must be under 2MB'); return; }
-    const reader = new FileReader();
-    reader.onload = (ev) => setter(prev => ({ ...prev, logo: ev.target.result }));
-    reader.readAsDataURL(file);
+    if (file.size > 5 * 1024 * 1024) { alert('Logo must be under 5MB'); return; }
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 300;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round(height * MAX / width);  width = MAX; }
+        else                { width  = Math.round(width  * MAX / height); height = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width  = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      // Use JPEG at 0.82 quality — keeps file small, still looks sharp for a logo
+      const compressed = canvas.toDataURL('image/jpeg', 0.82);
+      setter(prev => ({ ...prev, logo: compressed }));
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.onerror = () => {
+      alert('Could not read image file.');
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.src = objectUrl;
   };
 
   const addCompany = async () => {
